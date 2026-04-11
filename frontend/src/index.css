@@ -1,0 +1,99 @@
+@import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: #2563eb;
+  --secondary: #64748b;
+  --bg-slate: #f8fafc;
+  --safe: #22c55e;
+  --caution: #f59e0b;
+  --danger: #ef4444;
+}
+
+body {
+  margin: 0;
+  font-family: 'Pretendard', sans-serif;
+  background-color: var(--bg-slate);
+  color: #0f172a;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* Animations */
+@keyframes scanLine {
+  0% { transform: translateY(0); opacity: 0; }
+  50% { opacity: 0.8; }
+  100% { transform: translateY(180px); opacity: 0; }
+}
+
+.animate-scan {
+  animation: scanLine 2s infinite linear;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-pulse-subtle {
+  animation: pulse 2s infinite ease-in-out;
+}
+
+/* Custom Utilities */
+.glass {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.shadow-premium {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Roadview Thumbnail Cleaning - More Aggressive */
+.rv-thumbnail .kakao-roadview-controls,
+.rv-thumbnail .kakao-roadview-copyright,
+.rv-thumbnail .kakao-roadview-logo,
+.rv-thumbnail i[class*="kakao"],
+.rv-thumbnail div[style*="z-index: 1"],
+.rv-thumbnail div[style*="z-index: 2"] {
+  display: none !important;
+}
+
+/* Hide navigation guides and other UI elements */
+.rv-thumbnail .kakao-roadview-overlay,
+.rv-thumbnail [title*="가이드"],
+.rv-thumbnail [title*="나침반"],
+.rv-thumbnail div[style*="background-image"]:not(:first-child) {
+  display: none !important;
+}
+
+/* Base tiles are usually in the first child stack, but some versions use separate divs */
+.rv-thumbnail > div > div:not(:first-child) {
+  display: none !important;
+}
+
+.rv-thumbnail canvas {
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
