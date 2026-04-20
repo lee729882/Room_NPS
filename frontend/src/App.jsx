@@ -3,31 +3,7 @@ import { Search, Map as MapIcon, ShieldCheck, User, Users, Settings, LayoutGrid,
 import RightPanel from './components/RightPanel';
 
 const PropertyItem = ({ item, isSelected, onClick }) => {
-  const rvRef = useRef(null);
-  const [hasPhoto, setHasPhoto] = useState(false);
-
-  useEffect(() => {
-    if (window.kakao && window.kakao.maps && rvRef.current) {
-      // 기존 내용 초기화 (중복 방지)
-      rvRef.current.innerHTML = '';
-      
-      const rv = new window.kakao.maps.Roadview(rvRef.current);
-      const rvClient = new window.kakao.maps.RoadviewClient();
-      const pos = new window.kakao.maps.LatLng(item.lat, item.lng);
-      
-      rvClient.getNearestPanoId(pos, 50, (id) => {
-        if (id) {
-          rv.setPanoId(id, pos);
-          // 0.5초 후 시점 조정 (로드 완료 대기)
-          setTimeout(() => {
-             rv.setViewpoint({ pan: 0, tilt: 0, zoom: 0 });
-             setHasPhoto(true);
-          }, 500);
-        }
-      });
-    }
-  }, [item.lat, item.lng]);
-
+  // Roadview 제거 - 성능 최적화 (목록에 수십개의 로드뷰를 띄우는 것이 렉의 주원인)
   return (
     <div 
       onClick={onClick}
@@ -38,14 +14,8 @@ const PropertyItem = ({ item, isSelected, onClick }) => {
       }`}
     >
       <div className="flex gap-2.5">
-        <div className="w-16 h-16 rounded-lg bg-slate-100 flex-shrink-0 overflow-hidden border border-slate-200 relative">
-          <div 
-            ref={rvRef} 
-            className={`w-[200%] h-[200%] scale-[0.5] origin-top-left rv-thumbnail transition-opacity duration-500 ${hasPhoto ? 'opacity-100' : 'opacity-0'}`}
-          ></div>
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-slate-50/50">
-             <MapIcon size={18} className="text-slate-300 opacity-40" />
-          </div>
+        <div className="w-16 h-16 rounded-lg bg-slate-100 flex-shrink-0 overflow-hidden border border-slate-200 relative flex items-center justify-center">
+            <MapIcon size={24} className="text-slate-300 opacity-40" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex justify-between items-start">
@@ -69,9 +39,16 @@ function App() {
   const [listings, setListings] = useState([]);
   const [stats, setStats] = useState(null);
   const [searchQuery, setSearchQuery] = useState('강남구 역삼동');
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [showCctv, setShowCctv] = useState(false);
+  const showHeatmapRef = useRef(false);
+  const showCctvRef = useRef(false);
+
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markersRef = useRef([]);
+  const currentRegionRef = useRef('서울특별시 강남구 역삼동');
+  const wmsOverlaysRef = useRef({ crime: null, cctv: null });
 
   const handleSearch = () => {
     if (!searchQuery.trim() || !window.kakao) return;
@@ -91,6 +68,125 @@ function App() {
     });
   };
 
+  // ── 커스텀 GroundOverlay 클래스 팩토리 ──
+  const getGroundOverlayClass = () => {
+    if (window.KaKaoGroundOverlayClass) return window.KaKaoGroundOverlayClass;
+
+    function GroundOverlay(bounds, imgSrc, zIndex, opacity) {
+        this.bounds = bounds;
+        let node = document.createElement('div');
+        node.style.position = 'absolute';
+        node.style.zIndex = zIndex || 1;
+        let img = document.createElement('img');
+        img.src = imgSrc;
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.opacity = opacity || 1;
+        img.style.pointerEvents = 'none';
+        node.appendChild(img);
+        this.node = node;
+    }
+
+    if (window.kakao && window.kakao.maps) {
+        GroundOverlay.prototype = new window.kakao.maps.AbstractOverlay();
+        
+        GroundOverlay.prototype.onAdd = function() {
+            let panel = this.getPanels().overlayLayer;
+            panel.appendChild(this.node);
+        };
+
+        GroundOverlay.prototype.draw = function() {
+            if (!this.getMap()) return;
+            let projection = this.getProjection();
+            let ne = projection.pointFromCoords(this.bounds.getNorthEast());
+            let sw = projection.pointFromCoords(this.bounds.getSouthWest());
+            
+            let width = ne.x - sw.x;
+            let height = sw.y - ne.y;
+            
+            this.node.style.top = ne.y + 'px';
+            this.node.style.left = sw.x + 'px';
+            this.node.style.width = width + 'px';
+            this.node.style.height = height + 'px';
+        };
+
+        GroundOverlay.prototype.onRemove = function() {
+            if (this.node && this.node.parentNode) {
+                this.node.parentNode.removeChild(this.node);
+            }
+        };
+    }
+
+    window.KaKaoGroundOverlayClass = GroundOverlay;
+    return GroundOverlay;
+  };
+
+  // ── WMS 오버레이 업데이트 (범죄 히트맵 / CCTV) ──
+  const updateWmsOverlay = (type, map) => {
+    if (!map) return;
+
+    // 이전 오버레이 제거 (잔상/메모리 누수 방지)
+    if (wmsOverlaysRef.current[type]) {
+      wmsOverlaysRef.current[type].setMap(null);
+      wmsOverlaysRef.current[type] = null;
+    }
+
+    const bounds  = map.getBounds();
+    const sw      = bounds.getSouthWest();
+    const ne      = bounds.getNorthEast();
+    const bbox    = `${sw.getLng().toFixed(6)},${sw.getLat().toFixed(6)},${ne.getLng().toFixed(6)},${ne.getLat().toFixed(6)}`;
+    
+    // 래퍼 div 크기로 이미지 요청
+    const wrapper = document.getElementById('map-wrapper');
+    const w = wrapper ? wrapper.clientWidth  : 800;
+    const h = wrapper ? wrapper.clientHeight : 600;
+
+    let params = `srs=EPSG:4326&bbox=${bbox}&width=${w}&height=${h}&transparent=TRUE&format=image/png`;
+    if (type === 'crime') {
+      params += `&cid=IF_0087&layers=A2SM_CRMNLHSPOT_TOT&styles=A2SM_CrmnlHspot_Tot_Tot`;
+    } else {
+      // CCTV 레이어
+      params += `&cid=IF_0073&layers=A2SM_Cctv_Tot&styles=A2SM_Cctv_Tot`;
+    }
+
+    const src = `http://localhost:5000/api/safemap/proxy?${params}`;
+
+    // 디버깅: 개발자가 브라우저에서 직접 확인할 수 있도록 전체 URL 출력
+    console.log(`[WMS 디버깅] ${type} 레이어 전체 URL:\n${src}\n(해당 URL을 브라우저에 직접 입력하여 이미지가 표시되는지 확인하세요.)`);
+
+    // 카카오맵 AbstractOverlay를 상속한 GroundOverlay로 띄우기
+    const GroundOverlayClass = getGroundOverlayClass();
+    const zIndex = type === 'crime' ? 1 : 2;
+    const opacity = type === 'crime' ? 0.55 : 0.8;
+    
+    // Bounds 기반으로 새로운 GroundOverlay를 생성 (잔상 및 줌 문제 해결)
+    const overlay = new GroundOverlayClass(bounds, src, zIndex, opacity);
+
+    overlay.setMap(map);
+    wmsOverlaysRef.current[type] = overlay;
+  };
+
+  // State 변경 시 최신 상태를 ref에 동기화 & 토글 OFF 시 오버레이 즉시 제거
+  useEffect(() => {
+    showHeatmapRef.current = showHeatmap;
+    if (showHeatmap && mapInstance.current) {
+      updateWmsOverlay('crime', mapInstance.current);
+    } else if (!showHeatmap && wmsOverlaysRef.current.crime) {
+      wmsOverlaysRef.current.crime.setMap(null);
+      wmsOverlaysRef.current.crime = null;
+    }
+  }, [showHeatmap]);
+
+  useEffect(() => {
+    showCctvRef.current = showCctv;
+    if (showCctv && mapInstance.current) {
+      updateWmsOverlay('cctv', mapInstance.current);
+    } else if (!showCctv && wmsOverlaysRef.current.cctv) {
+      wmsOverlaysRef.current.cctv.setMap(null);
+      wmsOverlaysRef.current.cctv = null;
+    }
+  }, [showCctv]);
+
   useEffect(() => {
     if (window.kakao && window.kakao.maps && !mapInstance.current) {
       const options = {
@@ -102,16 +198,25 @@ function App() {
 
       const geocoder = new window.kakao.maps.services.Geocoder();
 
+      let searchTimeout;
       window.kakao.maps.event.addListener(map, 'idle', () => {
-        const center = map.getCenter();
-        geocoder.coord2RegionCode(center.getLng(), center.getLat(), (result, status) => {
-          if (status === window.kakao.maps.services.Status.OK) {
-            const bjd = result.find(r => r.region_type === 'B');
-            if (bjd) {
-              fetchNearby(bjd.code, bjd.address_name);
+        // Debounce: 500ms 동안 멈춰있을 때만 호출
+        if (searchTimeout) clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+          const center = map.getCenter();
+          geocoder.coord2RegionCode(center.getLng(), center.getLat(), (result, status) => {
+            if (status === window.kakao.maps.services.Status.OK) {
+              const bjd = result.find(r => r.region_type === 'B');
+              if (bjd) {
+                currentRegionRef.current = bjd.address_name;
+                fetchNearby(bjd.code, bjd.address_name);
+              }
             }
-          }
-        });
+          });
+          // 히트맵/CCTV 활성화되어 있으면 지도 이동 시 갱신
+          if (showHeatmapRef.current) updateWmsOverlay('crime', map);
+          if (showCctvRef.current)    updateWmsOverlay('cctv', map);
+        }, 500);
       });
 
       fetchNearby('1168010100', '서울특별시 강남구 역삼동'); 
@@ -129,6 +234,9 @@ function App() {
     return R * c;
   };
 
+  // 지오코딩 결과 캐시 (성능 최적화)
+  const geocodeCache = useRef({});
+
   const fetchNearby = async (code, regionName) => {
     try {
       const res = await fetch(`http://localhost:5000/api/nearby?code=${code}`);
@@ -141,22 +249,27 @@ function App() {
           return new Promise((resolve) => {
             const addr = item.sub || "";
             const label = item.label || "";
-            // 법정동 + 건물명 또는 법정동 + 지번으로 가장 정확한 위치 검색
-            // "본 매물" 같은 더미 단어가 포함되지 않은 진짜 건물명을 우선시함
             const cleanLabel = label.includes('매물') ? "" : label;
             const fullAddr = regionName ? `${regionName} ${cleanLabel || addr}` : (cleanLabel || addr);
             
+            // 캐시 확인
+            if (geocodeCache.current[fullAddr]) {
+              return resolve({ ...item, ...geocodeCache.current[fullAddr] });
+            }
+
             if (!addr.trim() && !cleanLabel.trim()) {
                return resolve({ ...item, lat: center.getLat(), lng: center.getLng() });
             }
+
             geocoder.addressSearch(fullAddr, (result, status) => {
               if (status === window.kakao.maps.services.Status.OK) {
-                // 매물간 변별력을 위해 정밀한 오차 부여 (0.00005도 ~= 약 5m)
                 const offsetLat = (Math.random() - 0.5) * 0.00005;
                 const offsetLng = (Math.random() - 0.5) * 0.00005;
-                resolve({ ...item, lat: parseFloat(result[0].y) + offsetLat, lng: parseFloat(result[0].x) + offsetLng });
+                const coords = { lat: parseFloat(result[0].y) + offsetLat, lng: parseFloat(result[0].x) + offsetLng };
+                // 캐시에 저장
+                geocodeCache.current[fullAddr] = coords;
+                resolve({ ...item, ...coords });
               } else {
-                // 실패 시 검색 지역 중심부 주변에 분산 배치
                 const spread = 0.003;
                 resolve({ 
                   ...item, 
@@ -168,7 +281,6 @@ function App() {
           });
         }));
 
-        // 1km 반경 필터링
         const filtered = enrichedListings.filter(item => {
           const dist = getDistance(center.getLat(), center.getLng(), item.lat, item.lng);
           return dist <= 1.0; 
@@ -227,7 +339,10 @@ function App() {
           code: item.code || '1168010100', 
           buildingName: item.label || '', 
           bun: bun, 
-          ji: ji 
+          ji: ji,
+          lat: item.lat || 37.5,
+          lng: item.lng || 127.0,
+          regionName: currentRegionRef.current || '',
         })
       });
       const data = await res.json();
@@ -312,14 +427,63 @@ function App() {
           </div>
         </aside>
 
-        <div ref={mapRef} className="flex-1 min-w-0 bg-slate-200 relative overflow-hidden">
-           <div className="absolute top-4 left-4 z-10 flex gap-1">
-              <button className="bg-white border border-slate-200 rounded-md px-3 py-1.5 text-[10px] font-bold shadow-sm flex items-center gap-1.5 text-blue-600 border-b-2 border-b-blue-600 uppercase tracking-tighter">Verified Area</button>
-              <button className="bg-white border border-slate-200 rounded-md px-3 py-1.5 text-[10px] font-bold shadow-sm text-slate-600">Building Filter</button>
-           </div>
+        {/* ── 지도 + 오버레이 래퍼 ── */}
+        <div className="flex-1 min-w-0 relative overflow-hidden bg-slate-200" id="map-wrapper">
+          {/* Kakao 지도 컨테이너 (Kakao가 내부 DOM 생성) */}
+          <div ref={mapRef} className="absolute inset-0" />
+
+          {/* ── 지도 컨트롤 버튼 ── */}
+          <div className="absolute top-4 left-4 flex gap-1.5 flex-wrap" style={{ zIndex: 100 }}>
+            <button className="bg-white border border-slate-200 rounded-md px-3 py-1.5 text-[10px] font-bold shadow-sm flex items-center gap-1.5 text-blue-600 border-b-2 border-b-blue-600 uppercase tracking-tighter">
+              Verified Area
+            </button>
+            
+            {/* 범죄 히트맵 토글 */}
+            <button
+              onClick={() => setShowHeatmap(!showHeatmap)}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[10px] font-bold shadow-sm border transition-all ${
+                showHeatmap
+                  ? 'bg-red-600 text-white border-red-700 border-b-2 border-b-red-800 shadow-red-200'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-red-300 hover:text-red-600'
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${showHeatmap ? 'bg-red-200 animate-pulse' : 'bg-slate-300'}`}/>
+              치안 히트맵
+            </button>
+
+            {/* CCTV 토글 */}
+            <button
+              onClick={() => setShowCctv(!showCctv)}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[10px] font-bold shadow-sm border transition-all ${
+                showCctv
+                  ? 'bg-indigo-600 text-white border-indigo-700 border-b-2 border-b-indigo-800 shadow-indigo-200'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${showCctv ? 'bg-indigo-200 animate-pulse' : 'bg-slate-300'}`}/>
+              CCTV 위치
+            </button>
+          </div>
+
+          {/* 히트맵 범례 */}
+          {showHeatmap && (
+            <div className="absolute bottom-6 left-4 bg-white/90 backdrop-blur-sm border border-slate-200 rounded-xl px-4 py-3 shadow-lg text-[9px] font-bold" style={{ zIndex: 100 }}>
+              <p className="text-slate-700 mb-2 font-black text-[10px]">🔴 범죄주의구간 (전체)</p>
+              <div className="flex items-center gap-2 mb-1">
+                <div className="flex gap-0.5">
+                  <div className="w-5 h-3 rounded-sm bg-red-700"/>
+                  <div className="w-5 h-3 rounded-sm bg-red-400"/>
+                  <div className="w-5 h-3 rounded-sm bg-orange-300"/>
+                  <div className="w-5 h-3 rounded-sm bg-yellow-100"/>
+                </div>
+                <span className="text-slate-500">주의 구간 → 안전 구간</span>
+              </div>
+              <p className="text-slate-400">출처: 생활안전지도 IF_0087_WMS</p>
+            </div>
+          )}
         </div>
 
-        <RightPanel selectedBuilding={selectedBuilding} />
+        <RightPanel selectedBuilding={selectedBuilding} regionName={currentRegionRef.current} />
       </main>
     </div>
   );
