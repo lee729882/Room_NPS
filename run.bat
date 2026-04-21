@@ -6,7 +6,7 @@ echo ==========================================
 
 echo.
 echo [1/2] 백엔드(Flask) 서버를 시작합니다...
-start "Room NPS Backend" cmd /k "venv\Scripts\python app.py"
+start "Room NPS Backend" cmd /k "venv\Scripts\activate && python app.py"
 
 echo.
 echo [2/2] 프론트엔드(Vite) 서버를 시작합니다...

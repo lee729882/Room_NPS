@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Map as MapIcon, ShieldCheck, User, Users, Settings, LayoutGrid, ChevronRight, Filter, Database, Bell, Home, Building2, Cpu } from 'lucide-react';
+import { Search, Map as MapIcon, ShieldCheck, User, Users, Settings, LayoutGrid, ChevronRight, Filter, Database, Bell, Home, Building2 } from 'lucide-react';
 import RightPanel from './components/RightPanel';
 
 const PropertyItem = ({ item, isSelected, onClick }) => {
@@ -61,7 +61,7 @@ const PropertyItem = ({ item, isSelected, onClick }) => {
               </span>
             </div>
             <p className="text-[9px] text-slate-400 font-bold truncate tracking-tight">
-              Jibun: {item.jibun || '정보 없음'}
+              {item.umd} · {item.jibun}
             </p>
           </div>
 
@@ -73,7 +73,7 @@ const PropertyItem = ({ item, isSelected, onClick }) => {
             <div className="flex items-center gap-1">
               <span className={`text-[8px] font-black px-2 py-0.5 rounded-full ${item.year > '2015' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
                 }`}>
-                {item.year > '2015' ? 'Safe' : 'Caution'}
+                {item.year > '2015' ? 'PREMIUM' : 'CLASSIC'}
               </span>
             </div>
           </div>
@@ -110,7 +110,6 @@ function App() {
 
     geocoder.addressSearch(searchQuery, (result, status) => {
       if (status === window.kakao.maps.services.Status.OK && mapInstance.current) {
-        setIsListLoading(true);
         const coords = new window.kakao.maps.LatLng(result[0].y, result[0].x);
         mapInstance.current.panTo(coords);
         mapInstance.current.setLevel(4);
@@ -516,19 +515,9 @@ function App() {
 
           <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2 bg-[#fdfdfd] relative">
             {isListLoading && (
-              <div className="absolute inset-0 bg-white/95 backdrop-blur-sm z-20 flex flex-col items-center justify-center p-6 text-center">
-                <div className="relative w-16 h-16 mb-6">
-                  <div className="absolute inset-0 border-4 border-blue-50 rounded-full" />
-                  <div className="absolute inset-0 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <Cpu className="w-7 h-7 text-blue-600 animate-pulse" />
-                  </div>
-                </div>
-                <p className="text-[9px] font-black text-blue-600 tracking-[0.2em] uppercase mb-2">Discovery Mode</p>
-                <h3 className="text-[13px] font-black text-slate-900 tracking-tighter uppercase mb-1">Exploring Neighborhood</h3>
-                <p className="text-slate-400 text-[9px] font-bold uppercase tracking-widest leading-relaxed">
-                  실거래가 데이터 및 통합 GIS<br/>인프라를 분석 중입니다
-                </p>
+              <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] z-10 flex flex-col items-center justify-center gap-3 transition-all">
+                <div className="w-8 h-8 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin" />
+                <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest animate-pulse">Analyzing Area...</span>
               </div>
             )}
             <div className="flex justify-between items-center px-1 mb-1">
@@ -607,7 +596,7 @@ function App() {
           )}
         </div>
 
-        <RightPanel selectedBuilding={selectedBuilding} regionName={currentRegionRef.current} isListLoading={isListLoading} />
+        <RightPanel selectedBuilding={selectedBuilding} regionName={currentRegionRef.current} />
       </main>
     </div>
   );

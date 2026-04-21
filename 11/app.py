@@ -92,16 +92,13 @@ VWORLD_DOMAIN = os.getenv("VWORLD_DOMAIN", "http://localhost:5174")
 SAFEMAP_KEY = os.getenv("SAFEMAP_KEY")
 BACKEND_URL = "http://localhost:5000" # 썸네일 전송용 절대 경로 베이스
 
-# 실거래가 API 엔드포인트 (빌라/단독/아파트/오피스텔 통합)
+# 4대 실거래가 API 엔드포인트
+# RH = 연립다세대,  SH = 단독/다가구
 ENDPOINTS = {
-    "RH_RENT":    "https://apis.data.go.kr/1613000/RTMSDataSvcRHRent/getRTMSDataSvcRHRent",
-    "SH_RENT":    "https://apis.data.go.kr/1613000/RTMSDataSvcSHRent/getRTMSDataSvcSHRent",
-    "RH_TRADE":   "https://apis.data.go.kr/1613000/RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade",
-    "SH_TRADE":   "https://apis.data.go.kr/1613000/RTMSDataSvcSHTrade/getRTMSDataSvcSHTrade",
-    "APT_RENT":   "https://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent",
-    "APT_TRADE":  "https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade",
-    "OFF_RENT":   "https://apis.data.go.kr/1613000/RTMSDataSvcOffRent/getRTMSDataSvcOffRent",
-    "OFF_TRADE":  "https://apis.data.go.kr/1613000/RTMSDataSvcOffTrade/getRTMSDataSvcOffTrade"
+    "RH_RENT":  "https://apis.data.go.kr/1613000/RTMSDataSvcRHRent/getRTMSDataSvcRHRent",
+    "SH_RENT":  "https://apis.data.go.kr/1613000/RTMSDataSvcSHRent/getRTMSDataSvcSHRent",
+    "RH_TRADE": "https://apis.data.go.kr/1613000/RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade",
+    "SH_TRADE": "https://apis.data.go.kr/1613000/RTMSDataSvcSHTrade/getRTMSDataSvcSHTrade",
 }
 
 # 전역 캐시 (메모리)
@@ -1183,8 +1180,8 @@ def get_distance(lat1, lon1, lat2, lon2):
 # ── Kakao API 전역 세션 (Connection Pool 부족 에러 해결) ──
 kakao_session = req_lib.Session()
 
-# 쓰레드 16개가 동시에 돌아가도 뻗지 않도록 풀 사이즈를 100으로 대폭 늘림 (Concurrency 최적화)
-adapter = HTTPAdapter(pool_connections=100, pool_maxsize=100)
+# 쓰레드 15개가 동시에 돌아가도 뻗지 않도록 풀 사이즈를 20으로 넉넉히 늘림
+adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20)
 kakao_session.mount('http://', adapter)
 kakao_session.mount('https://', adapter)
 
@@ -1202,18 +1199,11 @@ def add_meta(itm):
         itm['lat'], itm['lng'], itm['thumbnail'] = None, None, ""
         return itm
 
-    # [UX] 주소 조합 최적화 (중복 동 이름 방지 및 정확도 향상)
-    full_ctx = ctx.strip() if ctx else ""
-    umd_clean = umd.strip()
+    # [수정] "전라남도 나주시 송월동" -> "전라남도 나주시"만 추출 (마지막 동/읍/면 제외)
+    city_prefix = " ".join(ctx.split()[:-1]) if ctx else ""
     
-    # 만약 region_ctx에 이미 동 이름이 포함되어 있다면 중복 방지
-    if umd_clean in full_ctx:
-        addr = f"{full_ctx} {jibun}".strip()
-    else:
-        addr = f"{full_ctx} {umd_clean} {jibun}".strip()
-    
-    # 로깅 추가 (디버깅용)
-    # log.debug(f"[Geocode Attempt] {addr}")
+    # [수정] "전라남도 나주시" + "금성동" + "123-4" 형태로 완벽한 주소 조합
+    addr = f"{city_prefix} {umd} {jibun}".strip()
     
     if addr in GEO_CACHE:
         c = GEO_CACHE[addr]
@@ -1231,26 +1221,10 @@ def add_meta(itm):
                 lat, lng = float(docs[0]['y']), float(docs[0]['x'])
                 itm['lat'], itm['lng'] = lat, lng
                 itm['thumbnail'] = f"{BACKEND_URL}/api/thumbnail?lat={lat}&lng={lng}"
-                log.debug(f"[Geocode Success] {addr}")
+                
                 GEO_CACHE[addr] = {'lat': lat, 'lng': lng}
                 return itm
-        
-        # [Fallback] 만약 풀 주소로 실패했다면, 더 단순한 형태로 재시도 (나주시 송월동 123-4)
-        simple_addr = f"{umd} {jibun}".strip()
-        if simple_addr != addr:
-            r = kakao_session.get(url, params={'query': simple_addr}, timeout=2)
-            if r.status_code == 200:
-                docs = r.json().get('documents', [])
-                if docs:
-                    lat, lng = float(docs[0]['y']), float(docs[0]['x'])
-                    itm['lat'], itm['lng'] = lat, lng
-                    itm['thumbnail'] = f"{BACKEND_URL}/api/thumbnail?lat={lat}&lng={lng}"
-                    log.info(f"[Geocode Fallback Success] {simple_addr}")
-                    # 폴백 성공 결과도 캐시에 저장하여 재탐색 방지
-                    GEO_CACHE[simple_addr] = {'lat': lat, 'lng': lng}
-                    return itm
-    except Exception as e:
-        log.warning(f"[Geocode Error] {addr}: {e}")
+    except: pass
 
     itm['lat'], itm['lng'], itm['thumbnail'] = None, None, ""
     return itm
@@ -1273,7 +1247,7 @@ def get_nearby():
         months.reverse()
 
         all_items = []
-        with ThreadPoolExecutor(max_workers=16) as ex:
+        with ThreadPoolExecutor(max_workers=12) as ex:
             for lst in ex.map(lambda m: fetch_m(m, sigungu_cd), months):
                 all_items.extend(lst)
 
@@ -1290,11 +1264,7 @@ def get_nearby():
             # [1] 매물 이름 마스킹 해제 및 복원 (Bug #1 해결)
             raw_name = itm.get('name', '').strip()
             api_type = itm.get('apiType', '')
-            if "RH" in api_type: bld_type = "연립다세대"
-            elif "SH" in api_type: bld_type = "단독다가구"
-            elif "APT" in api_type: bld_type = "아파트"
-            elif "OFF" in api_type: bld_type = "오피스텔"
-            else: bld_type = "주택"
+            bld_type = "연립다세대" if "RH" in api_type else ("단독다가구" if "SH" in api_type else "주택")
             
             # 이름에 '*'가 포함되어 있거나 비어있는 경우 주소 기반 이름으로 대체
             if not raw_name or '*' in raw_name:
@@ -1335,7 +1305,7 @@ def get_nearby():
         with ThreadPoolExecutor(max_workers=15) as executor:
             full_listings = list(executor.map(add_meta, all_mapped))
 
-        # [4] 화면 범위(Bounds) 필터링
+        # [4] 화면 범위(Bounds) 필터링 (Bug #2 해결)
         filtered = full_listings
         if all(v is not None for v in [sw_lat, sw_lng, ne_lat, ne_lng]):
             filtered = [
@@ -1344,20 +1314,11 @@ def get_nearby():
                    sw_lat <= itm['lat'] <= ne_lat and
                    sw_lng <= itm['lng'] <= ne_lng
             ]
-            
-            # [Fallback] 만약 범위 내에 매물이 0건이라면, 좌표가 있는 매물 중 중심에서 가장 가까운 15개를 반환
-            if not filtered and full_listings:
-                log.info(f"[/nearby] Bounds 내 0건 -> 최근접 15건 Fallback 적용")
-                # 좌표가 있는 것들만 추출
-                valid_coords = [itm for itm in full_listings if itm.get('lat') is not None]
-                if c_lat and c_lng:
-                    valid_coords.sort(key=lambda x: get_distance(c_lat, c_lng, x.get('lat'), x.get('lng')))
-                filtered = valid_coords[:15]
-            else:
-                log.info(f"[/nearby] Bounds 필터링 적용 완료: {len(filtered)}건")
+            log.info(f"[/nearby] Bounds 필터링 적용 완료: {len(filtered)}건")
         else:
             # 범위가 없으면 유효한 좌표가 있는 것들만 남겨둠
             filtered = [itm for itm in full_listings if itm.get('lat') is not None]
+
         # [5] 지도 중심(Center) 기준 거리순 정렬 및 상위 30개 추출
         if c_lat and c_lng:
             filtered.sort(key=lambda x: get_distance(c_lat, c_lng, x.get('lat'), x.get('lng')))
@@ -1447,5 +1408,4 @@ def safemap_wms_proxy():
 
 
 if __name__ == '__main__':
-    load_geo_cache()
     app.run(host='0.0.0.0', port=5000, debug=True)
