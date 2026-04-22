@@ -16,6 +16,7 @@ import xmltodict
 import math
 import json
 from requests.adapters import HTTPAdapter
+from openai import OpenAI
 
 load_dotenv()
 
@@ -79,6 +80,73 @@ def roadview_proxy():
         log.error(f"[IMAGE-PROXY ERROR] Roadview: {e}")
     return "", 404
 
+# ─────────────────────────────────────────────────────────────
+# AI 법률 리포트 생성 API
+# ─────────────────────────────────────────────────────────────
+@app.route('/api/ai-report', methods=['POST'])
+def generate_ai_report():
+    """
+    매물 데이터를 기반으로 LLAMA3-70B를 사용하여 AI 법률 리포트를 생성합니다.
+    """
+    data = request.json
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    building_name = data.get('building_name', '해당 매물')
+    log.info(f"[AI-REPORT] Request received for building: {building_name}")
+
+    nps_score = data.get('nps_score', 0)
+    jeonse_ratio = data.get('jeonse_ratio', 0)
+    is_violation = data.get('is_violation', False)
+    building_name = data.get('building_name', '해당 매물')
+    region_name = data.get('region_name', '')
+    runner_pace = data.get('runner_pace', '보통') # 선택 사항: 러너 페르소나
+
+    # 프롬프트 구성 (구조 고정)
+    prompt = f"""
+대한민국 주택법 전문 변호사로서, 다음 구조에 맞춰 매물 진단 리포트를 작성하세요. 반드시 아래 형식을 엄격히 준수해야 합니다.
+
+1. **[{building_name}] AI 안심 진단 요약**:
+   - NPS 점수({nps_score}점)와 전세가율({jeonse_ratio if jeonse_ratio > 0 else '정보 부족'}%)을 기반으로 한 줄 평을 작성하세요. (예: {building_name} - 전세가율 {jeonse_ratio}% 위험군)
+
+2. **⚖️ 주택임대차보호법 기반 권리 분석**:
+   - 주택임대차보호법 제8조(보증금 중 일정액의 보호)를 근거로, 실제 보증금 수치를 인용하여 최우선변제권 범위 내에 드는지, 대항력 발생 시 주의점은 무엇인지 설명하세요.
+
+3. **⚠️ NPS 데이터 기반 리스크 진단**:
+   - 위반건축물 여부({is_violation})를 바탕으로 법적 리스크를 확정적으로 언급하세요. 전세자금대출이나 보증보험 가입 가능 여부를 명시하세요.
+
+4. **🏃 전문 변호사의 페이스 조언**:
+   - '{runner_pace}'라는 키워드를 사용하여 임차인이 취해야 할 다음 행동을 위트 있게 조언하며 마무리하세요.
+
+[매물 데이터]
+- NPS 점수: {nps_score}점
+- 전세가율: {jeonse_ratio}%
+- 위반건축물: {'있음' if is_violation else '없음'}
+- 현재 페이스: {runner_pace}
+
+[법률 컨텍스트]
+{LEGAL_CONTEXT[:1500]}
+
+결과는 반드시 Markdown 형식으로, 위 4단계 구조를 지켜서 출력하세요. 불필요한 서론이나 결론은 생략하세요.
+"""
+
+    try:
+        completion = client.chat.completions.create(
+            model="meta/llama-3.1-70b-instruct",
+            messages=[
+                {"role": "system", "content": "당신은 어려운 법률 용어를 쉽게 풀어 설명해주는 친절하고 전문적인 부동산 전문 변호사입니다. 결과는 반드시 마크다운 형식으로, 군더더기 없이 요약하여 제공하세요."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.5,
+            max_tokens=1024,
+            top_p=1
+        )
+        report = completion.choices[0].message.content
+        return jsonify({"report": report})
+    except Exception as e:
+        log.error(f"[AI-REPORT ERROR] {e}")
+        return jsonify({"error": str(e)}), 500
+
 # [RESTORED END]
 # ─────────────────────────────────────────────────────────────
 
@@ -141,6 +209,25 @@ def save_geo_cache():
         log.error(f"[CACHE] 캐시 저장 불가: {e}")
 
 load_geo_cache()
+
+# ── 주택임대차보호법 법률 컨텍스트 로드 ──
+LEGAL_CONTEXT = ""
+try:
+    LEGAL_PATH = os.path.join(os.path.dirname(__file__), '주택임대차보호법.txt')
+    if os.path.exists(LEGAL_PATH):
+        with open(LEGAL_PATH, 'r', encoding='utf-8') as f:
+            LEGAL_CONTEXT = f.read()
+        log.info(f"[LEGAL] 주택임대차보호법 컨텍스트 로드 완료 ({len(LEGAL_CONTEXT)} bytes)")
+    else:
+        log.warning("[LEGAL] 주택임대차보호법.txt 파일을 찾을 수 없습니다.")
+except Exception as e:
+    log.error(f"[LEGAL] 로드 실패: {e}")
+
+# NVIDIA NIM 클라이언트 설정
+client = OpenAI(
+    base_url="https://integrate.api.nvidia.com/v1",
+    api_key=os.getenv("NVIDIA_API_KEY")
+)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -233,8 +320,8 @@ def fetch_and_parse(url, params, api_type):
         for it in items:
             # 보증금 / 거래금액
             if is_rent:
-                deposit_raw = it.findtext('deposit', '0')
-                monthly_raw = it.findtext('monthlyRent', '0')
+                deposit_raw = it.findtext('deposit', it.findtext('보증금액', '0'))
+                monthly_raw = it.findtext('monthlyRent', it.findtext('월세금액', '0'))
                 deposit = safe_int(deposit_raw)
                 monthly = safe_int(monthly_raw)
                 price   = deposit  # 전세가 기준 보증금
@@ -248,10 +335,19 @@ def fetch_and_parse(url, params, api_type):
 
             area  = safe_float(it.findtext('excluUseAr', it.findtext('전용면적', '30')), 30.0)
             year  = (it.findtext('buildYear', it.findtext('건축년도', '2015')) or '2015').strip()
-            name  = clean_text(it.findtext('mhouseNm', it.findtext('연립다세대', it.findtext('bldNm', ''))))
             jibun = normalize_jibun(it.findtext('jibun', it.findtext('지번', '')))
-            floor = (it.findtext('floor', it.findtext('층', '1')) or '1').strip()
             umd   = (it.findtext('umdNm', it.findtext('법정동', '')) or '').strip()
+            
+            # [Fix] 아파트/오피스텔 이름 추출 로직 보강 (한글 태그 대응)
+            name = clean_text(
+                it.findtext('aptNm') or it.findtext('아파트') or      # 아파트
+                it.findtext('offiNm') or it.findtext('단지') or        # 오피스텔
+                it.findtext('mhouseNm') or it.findtext('연립다세대') or  # 빌라/다세대
+                it.findtext('bldNm') or                                # 기타
+                f"{umd} {jibun}"                                       # 기본값
+            )
+            
+            floor = (it.findtext('floor', it.findtext('층', '1')) or '1').strip()
 
             parsed.append({
                 "price":   price,

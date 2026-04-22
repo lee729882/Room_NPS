@@ -89,17 +89,16 @@ function App() {
   const [stats, setStats] = useState(null);
   const [searchQuery, setSearchQuery] = useState('강남구 역삼동');
   const [showHeatmap, setShowHeatmap] = useState(false);
-  const [showCctv, setShowCctv] = useState(false);
+  const [filterType, setFilterType] = useState('ALL');
   const [isListLoading, setIsListLoading] = useState(false);
   const showHeatmapRef = useRef(false);
-  const showCctvRef = useRef(false);
   const fetchIdRef = useRef(0);
 
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markersRef = useRef([]);
   const currentRegionRef = useRef('서울특별시 강남구 역삼동');
-  const wmsOverlaysRef = useRef({ crime: null, cctv: null });
+  const wmsOverlaysRef = useRef({ crime: null });
 
   const handleSearch = () => {
     if (!searchQuery.trim() || !window.kakao) return;
@@ -196,9 +195,6 @@ function App() {
     let params = `srs=EPSG:4326&bbox=${bbox}&width=${w}&height=${h}&transparent=TRUE&format=image/png`;
     if (type === 'crime') {
       params += `&cid=IF_0087&layers=A2SM_CRMNLHSPOT_TOT&styles=A2SM_CrmnlHspot_Tot_Tot`;
-    } else {
-      // CCTV 레이어
-      params += `&cid=IF_0073&layers=A2SM_Cctv_Tot&styles=A2SM_Cctv_Tot`;
     }
 
     const src = `http://localhost:5000/api/safemap/proxy?${params}`;
@@ -228,16 +224,6 @@ function App() {
       wmsOverlaysRef.current.crime = null;
     }
   }, [showHeatmap]);
-
-  useEffect(() => {
-    showCctvRef.current = showCctv;
-    if (showCctv && mapInstance.current) {
-      updateWmsOverlay('cctv', mapInstance.current);
-    } else if (!showCctv && wmsOverlaysRef.current.cctv) {
-      wmsOverlaysRef.current.cctv.setMap(null);
-      wmsOverlaysRef.current.cctv = null;
-    }
-  }, [showCctv]);
 
   useEffect(() => {
     if (window.kakao && window.kakao.maps && !mapInstance.current) {
@@ -292,7 +278,6 @@ function App() {
 
           // WMS 레이어 갱신
           if (showHeatmapRef.current) updateWmsOverlay('crime', map);
-          if (showCctvRef.current) updateWmsOverlay('cctv', map);
         }, 500);
       });
 
@@ -345,7 +330,6 @@ function App() {
         if (data.listings) {
           setListings(data.listings);
           setStats({ ...data.stats, count: data.listings.length });
-          updateMarkers(data.listings);
         }
       }
     } catch (e) {
@@ -357,10 +341,12 @@ function App() {
     }
   };
   const updateMarkers = (items) => {
+    if (!window.kakao || !mapInstance.current) return;
     markersRef.current.forEach(m => m.setMap(null));
     markersRef.current = [];
 
     const newMarkers = items.map(item => {
+      if (!item.lat || !item.lng) return null;
       const isSafe = item.year > '2015';
       const color = isSafe ? '#2563eb' : '#f59e0b';
 
@@ -383,9 +369,25 @@ function App() {
 
       overlay.setMap(mapInstance.current);
       return overlay;
-    });
+    }).filter(m => m !== null);
     markersRef.current = newMarkers;
   };
+
+  // ── 필터링 로직 (Filter Logic) ──
+  const filteredListings = listings.filter(item => {
+    if (filterType === 'ALL') return true;
+    if (filterType === 'APT') return item.apiType?.includes('APT');
+    if (filterType === 'VILLA') return item.apiType?.includes('RH') || item.apiType?.includes('SH');
+    if (filterType === 'OFF') return item.apiType?.includes('OFF');
+    return true;
+  });
+
+  // 필터링된 데이터가 변경될 때마다 마커 업데이트
+  useEffect(() => {
+    if (mapInstance.current) {
+      updateMarkers(filteredListings);
+    }
+  }, [filteredListings, listings]);
 
   const handleAnalyze = async (item) => {
     if (!item) return;
@@ -408,53 +410,78 @@ function App() {
       });
       const data = await res.json();
 
-      // ── 프론트엔드 실시간 인프라 보정 (백엔드 401 우회) ──
-      const ps = new window.kakao.maps.services.Places();
-      const pArr = new window.kakao.maps.LatLng(item.lat, item.lng);
-
-      const searchFacility = (keyword, bonus) => {
-        return new Promise((resolve) => {
-          ps.keywordSearch(keyword, (res, status) => {
-            if (status === window.kakao.maps.services.Status.OK && res.length > 0) {
-              const d = parseInt(res[0].distance);
-              resolve({ keyword, distance: d, bonus: d < 500 ? bonus : 0 });
-            } else {
-              resolve({ keyword, distance: 999, bonus: 0 });
-            }
-          }, { location: pArr, radius: 2000, sort: window.kakao.maps.services.SortBy.DISTANCE });
+        // ── [NEW] AI 법률 리포트 요청 (분석 즉시 시작하여 응답 속도 향상) ──
+        setSelectedBuilding({ ...item, analysis: data, loading: false, aiLoading: true });
+        
+        fetch('http://localhost:5000/api/ai-report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nps_score: data.npsScore,
+            jeonse_ratio: data.details?.jeonseRatio,
+            is_violation: data.building?.isVilo === '1',
+            building_name: item.label,
+            region_name: currentRegionRef.current,
+            runner_pace: (data.npsScore > 80 ? '안정적 페이스' : (data.npsScore > 60 ? '조금 빠른 페이스' : '오버페이스'))
+          })
+        })
+        .then(res => res.json())
+        .then(aiData => {
+          setSelectedBuilding(prev => ({ ...prev, aiReport: aiData.report, aiLoading: false }));
+        })
+        .catch(err => {
+          console.error("AI Report error:", err);
+          setSelectedBuilding(prev => ({ ...prev, aiLoading: false }));
         });
-      };
 
-      Promise.all([
-        searchFacility('지하철역', 10),
-        searchFacility('대형마트', 5),
-        searchFacility('편의점', 5)
-      ]).then(results => {
-        // ── 사이드바 리스트 사진 동기화 ──
-        if (data.thumbnail) {
-          setListings(prev => prev.map(l =>
-            (l.id === item.id || (l.label === item.label && l.jibun === item.jibun))
-              ? { ...l, thumbnail: data.thumbnail }
-              : l
-          ));
-        }
+        // ── 실시간 인프라 보정 (백엔드 401 우회) ──
+        const ps = new window.kakao.maps.services.Places();
+        const pArr = new window.kakao.maps.LatLng(item.lat, item.lng);
+        
+        const searchFacility = (keyword, bonus) => {
+          return new Promise((resolve) => {
+            ps.keywordSearch(keyword, (res, status) => {
+              if (status === window.kakao.maps.services.Status.OK && res.length > 0) {
+                const d = parseInt(res[0].distance);
+                resolve({ keyword, distance: d, bonus: d < 500 ? bonus : 0 });
+              } else {
+                resolve({ keyword, distance: 999, bonus: 0 });
+              }
+            }, { location: pArr, radius: 2000, sort: window.kakao.maps.services.SortBy.DISTANCE });
+          });
+        };
 
-        // ── 실시간 인프라 보정 산식 (생활편의 점수 반영) ──
-        const totalBonus = results.reduce((acc, cr) => acc + cr.bonus, 0);
-        const targetSafe = data.safemap || {};
-        if (totalBonus > 0 && targetSafe.radar) {
-          targetSafe.amenityScore = Math.min(100, (targetSafe.amenityScore || 70) + totalBonus);
-          const amIdx = targetSafe.radar.findIndex(r => r.subject === '생활편의');
-          if (amIdx > -1) targetSafe.radar[amIdx].score = targetSafe.amenityScore;
-        }
-
-        setSelectedBuilding({ ...item, analysis: data, loading: false });
-      });
-    } catch (e) {
-      console.error("Analysis error:", e);
-      setSelectedBuilding({ ...item, loading: false });
-    }
-  };
+        Promise.all([
+          searchFacility('지하철역', 10),
+          searchFacility('대형마트', 5),
+          searchFacility('편의점', 5)
+        ]).then(results => {
+          // ── 사이드바 리스트 사진 동기화 ──
+          if (data.thumbnail) {
+            setListings(prev => prev.map(l =>
+              (l.id === item.id || (l.label === item.label && l.jibun === item.jibun))
+                ? { ...l, thumbnail: data.thumbnail }
+                : l
+            ));
+          }
+  
+          // ── 실시간 인프라 보정 산식 (생활편의 점수 반영) ──
+          const totalBonus = results.reduce((acc, cr) => acc + cr.bonus, 0);
+          const targetSafe = data.safemap || {};
+          if (totalBonus > 0 && targetSafe.radar) {
+            targetSafe.amenityScore = Math.min(100, (targetSafe.amenityScore || 70) + totalBonus);
+            const amIdx = targetSafe.radar.findIndex(r => r.subject === '생활편의');
+            if (amIdx > -1) targetSafe.radar[amIdx].score = targetSafe.amenityScore;
+          }
+          
+          // 기존 데이터 업데이트 (AI 상태 유지하며)
+          setSelectedBuilding(prev => ({ ...prev, analysis: { ...data, safemap: targetSafe } }));
+        });
+      } catch (e) {
+        console.error("Analysis error:", e);
+        setSelectedBuilding({ ...item, loading: false });
+      }
+    };
 
   return (
     <div className="flex flex-col h-screen w-screen bg-slate-50 overflow-hidden text-slate-900">
@@ -502,16 +529,32 @@ function App() {
                 <Search size={14} />
               </button>
             </div>
-            <div className="flex flex-col gap-2">
-              <div className="flex justify-between items-center text-[10px] font-bold">
-                <span className="text-slate-400">매물 유형</span>
-                {stats && <span className="text-blue-600 whitespace-nowrap">검색결과: {stats.count}건</span>}
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-between items-center text-[10px] font-bold">
+                  <span className="text-slate-400">매물 유형</span>
+                  {stats && <span className="text-blue-600 whitespace-nowrap">검색결과: {filteredListings.length}건</span>}
+                </div>
+                <div className="flex gap-1 overflow-x-auto pb-1 no-scrollbar">
+                  {[
+                    { id: 'ALL', label: '전체' },
+                    { id: 'APT', label: '아파트' },
+                    { id: 'VILLA', label: '빌라/다세대' },
+                    { id: 'OFF', label: '오피스텔' }
+                  ].map(btn => (
+                    <button
+                      key={btn.id}
+                      onClick={() => setFilterType(btn.id)}
+                      className={`whitespace-nowrap text-[10px] px-3 py-1.5 rounded-full border transition-all duration-300 ${
+                        filterType === btn.id
+                          ? 'bg-blue-600 text-white border-blue-700 font-black shadow-md shadow-blue-100'
+                          : 'bg-white text-slate-400 border-slate-100 font-bold hover:border-blue-200 hover:text-blue-600'
+                      }`}
+                    >
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="flex gap-1">
-                <button className="bg-blue-50 text-blue-600 text-[10px] font-bold px-3 py-1.5 rounded-full border border-blue-100 uppercase">Multi-Family</button>
-                <button className="bg-white text-slate-400 text-[10px] font-bold px-3 py-1.5 rounded-full border border-slate-100">Apartment</button>
-              </div>
-            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2 bg-[#fdfdfd] relative">
@@ -535,13 +578,13 @@ function App() {
               <span className="text-[11px] font-extrabold text-slate-800 uppercase tracking-tighter">Nearby Real-Trades</span>
               <span className="text-[9px] font-bold text-blue-600 cursor-pointer tracking-tighter">v3.0 Data Fusion</span>
             </div>
-            {listings.length === 0 && !isListLoading ? (
+            {filteredListings.length === 0 && !isListLoading ? (
               <div className="flex flex-col items-center justify-center py-10 text-slate-300">
                 <Database size={32} />
-                <span className="text-[10px] font-bold mt-2">이 지역에는 데이터가 없습니다.</span>
+                <span className="text-[10px] font-bold mt-2">해당 유형의 매물이 이 지역에 없습니다.</span>
               </div>
             ) : (
-              listings.map(item => (
+              filteredListings.map(item => (
                 <PropertyItem
                   key={item.id}
                   item={item}
@@ -574,18 +617,6 @@ function App() {
             >
               <span className={`w-2 h-2 rounded-full ${showHeatmap ? 'bg-red-200 animate-pulse' : 'bg-slate-300'}`} />
               치안 히트맵
-            </button>
-
-            {/* CCTV 토글 */}
-            <button
-              onClick={() => setShowCctv(!showCctv)}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[10px] font-bold shadow-sm border transition-all ${showCctv
-                  ? 'bg-indigo-600 text-white border-indigo-700 border-b-2 border-b-indigo-800 shadow-indigo-200'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
-                }`}
-            >
-              <span className={`w-2 h-2 rounded-full ${showCctv ? 'bg-indigo-200 animate-pulse' : 'bg-slate-300'}`} />
-              CCTV 위치
             </button>
           </div>
 

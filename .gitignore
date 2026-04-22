@@ -16,3 +16,7 @@ node-v20.11.0-win-x64/
 # 운영체제 관련
 .DS_Store
 Thumbs.db
+
+geocoding_cache.json
+*.zip
+scratch/

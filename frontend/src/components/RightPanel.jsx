@@ -2,8 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ShieldCheck, AlertTriangle, CheckCircle2, Cpu, Activity,
   Database, Trash2, Phone, Clock, Calendar, ShieldAlert, Zap,
-  Home, TrendingUp, Info, Car, ArrowUpDown, Building2, Maximize
+  Home, TrendingUp, Info, Car, ArrowUpDown, Building2, Maximize, Scale
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   ResponsiveContainer, BarChart, Bar, Cell,
@@ -120,8 +121,11 @@ const RightPanel = ({ selectedBuilding, regionName }) => {
   const details = analysis?.details || {};
   const safemap = analysis?.safemap || {};
   const building = analysis?.building || {};
-  const npsBreak = analysis?.npsBreakdown || {};
-  const diagnosis = analysis?.diagnosis || {};
+    const npsBreak = analysis?.npsBreakdown || {};
+    const diagnosis = analysis?.diagnosis || {};
+  
+    const aiLoading = selectedBuilding?.aiLoading;
+    const aiReport = selectedBuilding?.aiReport;
 
   const zoneStatus = safemap.zoneStatus || 'safe';
   const warningMsg = safemap.warningMsg || '';
@@ -592,6 +596,56 @@ const RightPanel = ({ selectedBuilding, regionName }) => {
               <span className="text-[10px] font-bold text-slate-700 leading-relaxed">{item.text}</span>
             </div>
           ))}
+        </section>
+
+        {/* ── [NEW] AI 법률 분석 리포트 ── */}
+        <section className="bg-white border border-blue-100 rounded-2xl p-5 space-y-4 shadow-sm relative overflow-hidden">
+          {/* Decorative background element */}
+          <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50/50 rounded-full -mr-12 -mt-12 blur-2xl" />
+          
+          <div className="flex items-center justify-between relative z-10">
+            <h3 className="text-[11px] font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
+              <Scale size={14} className="text-blue-600" /> AI 법률 리포트 (LLAMA3-70B)
+            </h3>
+            <div className="flex items-center gap-1.5 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
+              <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+              <span className="text-[8px] font-black text-blue-600 tracking-tighter uppercase">AI Lawyer Mode</span>
+            </div>
+          </div>
+
+          <div className="relative min-h-[100px] bg-slate-50/50 rounded-xl border border-slate-200 p-4 relative z-10">
+            {aiLoading ? (
+              <div className="flex flex-col items-center justify-center py-6 space-y-3">
+                <div className="flex gap-1">
+                  <div className="w-1 h-1 bg-blue-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                  <div className="w-1 h-1 bg-blue-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                  <div className="w-1 h-1 bg-blue-500 rounded-full animate-bounce" />
+                </div>
+                <p className="text-[10px] font-black text-blue-600 animate-pulse">변호사가 법률 검토 중...</p>
+                <p className="text-[8px] text-slate-400 font-medium text-center">주택임대차보호법 기반 리스크를<br/>심층 분석하고 있습니다</p>
+              </div>
+            ) : aiReport ? (
+              <div className="prose prose-slate prose-xs max-w-none text-slate-700 text-[10px] leading-relaxed font-medium markdown-content">
+                {/* ReactMarkdown이 설치되어 있다면 사용, 아니면 일반 텍스트 출력 */}
+                {typeof ReactMarkdown !== 'undefined' ? (
+                  <ReactMarkdown>{aiReport}</ReactMarkdown>
+                ) : (
+                  <div style={{ whiteSpace: 'pre-wrap' }}>{aiReport}</div>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-6 opacity-40">
+                <Scale size={24} className="text-slate-300 mb-2" />
+                <p className="text-[9px] font-bold text-slate-400">분석 대기 중</p>
+              </div>
+            )}
+          </div>
+          
+          <div className="bg-blue-50/50 rounded-lg px-3 py-2 border border-blue-100/50">
+            <p className="text-[8px] font-bold text-slate-400 leading-tight">
+              ※ 본 리포트는 AI(LLAMA3-70B)가 주택임대차보호법을 근거로 작성한 참고용 분석이며, 법적 효력이 없습니다. 실제 계약 전 전문가와 상담하십시오.
+            </p>
+          </div>
         </section>
 
       </div>
