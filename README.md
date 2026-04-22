@@ -49,8 +49,8 @@
 - **Model Accuracy**: 실제 규칙 기반 점수와 AI 예측 점수 간의 높은 일치율(Calibration)을 확인했습니다.
 
 <p align="center">
-  <img src="images/feature_importance_premium.png" width="45%">
-  <img src="images/impact_analysis_premium.png" width="45%">
+  <img src="image/feature_importance_premium.png" width="45%">
+  <img src="image/impact_analysis_premium.png" width="45%">
 </p>
 
 ---
@@ -59,6 +59,8 @@
 ```text
 Room_NPS/
 ├── frontend/               # [Frontend] React + Vite + Tailwind CSS
+├── image/          # [Results] 시스템 스크린샷 및 데이터 분석 시각화 결과물 (5장)
+├── notebooks/      # [Analysis] NPS 점수 예측 ML 모델 학습 및 EDA 실험 코드 (.ipynb)
 ├── venv/                   # [Backend] Python 가상환경
 ├── app.py                  # [Server] Flask API 및 다중 공공데이터 병렬 처리 엔진
 ├── 주택임대차보호법.TXT       # [Data] LLM RAG 기반 법률 리포트 생성용 컨텍스트
