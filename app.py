@@ -168,8 +168,8 @@ ENDPOINTS = {
     "SH_TRADE":   "https://apis.data.go.kr/1613000/RTMSDataSvcSHTrade/getRTMSDataSvcSHTrade",
     "APT_RENT":   "https://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent",
     "APT_TRADE":  "https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade",
-    "OFF_RENT":   "https://apis.data.go.kr/1613000/RTMSDataSvcOffRent/getRTMSDataSvcOffRent",
-    "OFF_TRADE":  "https://apis.data.go.kr/1613000/RTMSDataSvcOffTrade/getRTMSDataSvcOffTrade"
+    "OFF_RENT":   "https://apis.data.go.kr/1613000/RTMSDataSvcOffiRent/getRTMSDataSvcOffiRent",
+    "OFF_TRADE":  "https://apis.data.go.kr/1613000/RTMSDataSvcOffiTrade/getRTMSDataSvcOffiTrade"
 }
 
 # 전역 캐시 (메모리)
@@ -285,12 +285,8 @@ def get_nearest_panoid(lat, lng):
 # ─────────────────────────────────────────────────────────────
 def fetch_and_parse(url, params, api_type):
     """
-    공공 실거래가 API 호출 및 파싱.
-    api_type: 'RH_RENT' | 'SH_RENT' | 'RH_TRADE' | 'SH_TRADE'
-
-    실제 응답 필드 (2025년 API 확인):
-      전월세: deposit, monthlyRent, excluUseAr, buildYear, mhouseNm, jibun, umdNm, floor
-      매매:   dealAmount, excluUseAr, buildYear, mhouseNm, jibun, umdNm, floor
+    공공 실거래가 API 호출 및 파싱 (국토교통부 공식 명세서 최적화).
+    대상: 아파트(APT), 연립다세대(RH), 단독다가구(SH), 오피스텔(OFF)
     """
     try:
         r = req_lib.get(url, params=params, timeout=10)
@@ -301,11 +297,10 @@ def fetch_and_parse(url, params, api_type):
             return []
 
         root = ET.fromstring(r.content)
-        # XML 응답 로깅 (MOLIT) - 제거됨 (로그 최적화)
 
-        # 결과 코드 확인
+        # 결과 코드 확인 (00 또는 000이 정상)
         result_code = root.findtext('.//resultCode', '')
-        if result_code and result_code != '000':
+        if result_code and result_code not in ['00', '000']:
             log.warning(f"[API] {api_type} resultCode={result_code}")
             return []
 
@@ -318,36 +313,39 @@ def fetch_and_parse(url, params, api_type):
         is_rent = 'RENT' in api_type
 
         for it in items:
-            # 보증금 / 거래금액
+            # 1. 가격 정보 추출 (공식 태그 우선)
             if is_rent:
-                deposit_raw = it.findtext('deposit', it.findtext('보증금액', '0'))
-                monthly_raw = it.findtext('monthlyRent', it.findtext('월세금액', '0'))
+                # 전월세: deposit(보증금), monthlyRent(월세액)
+                deposit_raw = it.findtext('deposit') or it.findtext('보증금액') or '0'
+                monthly_raw = it.findtext('monthlyRent') or it.findtext('월세금액') or '0'
                 deposit = safe_int(deposit_raw)
                 monthly = safe_int(monthly_raw)
-                price   = deposit  # 전세가 기준 보증금
+                price   = deposit  # 전세가 기준 가격 표시용
                 tx_type = '월세' if monthly > 0 else '전세'
             else:
-                deal_raw = it.findtext('dealAmount', it.findtext('거래금액', '0'))
+                # 매매: dealAmount(거래금액)
+                deal_raw = it.findtext('dealAmount') or it.findtext('거래금액') or '0'
                 deposit  = safe_int(deal_raw)
                 monthly  = 0
                 price    = deposit
                 tx_type  = '매매'
 
-            area  = safe_float(it.findtext('excluUseAr', it.findtext('전용면적', '30')), 30.0)
-            year  = (it.findtext('buildYear', it.findtext('건축년도', '2015')) or '2015').strip()
-            jibun = normalize_jibun(it.findtext('jibun', it.findtext('지번', '')))
-            umd   = (it.findtext('umdNm', it.findtext('법정동', '')) or '').strip()
+            # 2. 건물 정보 추출 (공식 태그: excluUseAr, buildYear)
+            area  = safe_float(it.findtext('excluUseAr') or it.findtext('전용면적') or '30', 30.0)
+            year  = (it.findtext('buildYear') or it.findtext('건축년도') or '2015').strip()
+            jibun = normalize_jibun(it.findtext('jibun') or it.findtext('지번') or '')
+            umd   = (it.findtext('umdNm') or it.findtext('법정동') or '').strip()
             
-            # [Fix] 아파트/오피스텔 이름 추출 로직 보강 (한글 태그 대응)
+            # 3. 건물명 추출 (공식 태그: aptNm(아파트), offiNm(오피스텔), mhouseNm(연립))
             name = clean_text(
-                it.findtext('aptNm') or it.findtext('아파트') or      # 아파트
-                it.findtext('offiNm') or it.findtext('단지') or        # 오피스텔
-                it.findtext('mhouseNm') or it.findtext('연립다세대') or  # 빌라/다세대
-                it.findtext('bldNm') or                                # 기타
-                f"{umd} {jibun}"                                       # 기본값
+                it.findtext('aptNm') or it.findtext('아파트') or           # 아파트 명세서 기준
+                it.findtext('offiNm') or it.findtext('단지') or             # 오피스텔 명세서 기준
+                it.findtext('mhouseNm') or it.findtext('연립다세대') or       # 연립다세대 명세서 기준
+                it.findtext('bldNm') or                                     # 공통/기타
+                f"{umd} {jibun}"                                            # 최후의 수단
             )
             
-            floor = (it.findtext('floor', it.findtext('층', '1')) or '1').strip()
+            floor = (it.findtext('floor') or it.findtext('층') or '1').strip()
 
             parsed.append({
                 "price":   price,
