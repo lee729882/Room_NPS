@@ -39,8 +39,23 @@
 - **Safe-Fallback System**: 공공데이터 서버 불안정 시 지오코딩 로컬 캐싱 및 인근 표준 데이터를 활용한 지능형 추론 로직을 탑재했습니다.
 
 ---
+---
 
-## 📂 4. Project Structure (폴더 구조)
+## 📊 4. Data Science & Model Analysis
+본 프로젝트는 단순한 UI 구현을 넘어, 5,000건 이상의 가상/실제 부동산 데이터를 바탕으로 딥러닝 기반의 안심 점수(NPS) 추론 모델을 설계하고 검증했습니다.
+
+### 📈 모델 학습 결과 (Training Results)
+- **Feature Importance**: 위반건축물 여부(0.35)와 전세가율(0.28)이 주거 안전성의 핵심 결정 요인임을 데이터로 입증했습니다.
+- **Model Accuracy**: 실제 규칙 기반 점수와 AI 예측 점수 간의 높은 일치율(Calibration)을 확인했습니다.
+
+<p align="center">
+  <img src="images/feature_importance_premium.png" width="45%">
+  <img src="images/impact_analysis_premium.png" width="45%">
+</p>
+
+---
+
+## 📂 5. Project Structure (폴더 구조)
 ```text
 Room_NPS/
 ├── frontend/               # [Frontend] React + Vite + Tailwind CSS
@@ -55,7 +70,7 @@ Room_NPS/
 
 ---
 
-## 📂 5. Getting Started(시작하기)
+## 📂 6. Getting Started(시작하기)
 
 ### 🛠️ Step 1. Environment Setup (환경 설정)
 
