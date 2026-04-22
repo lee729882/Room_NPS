@@ -1397,24 +1397,23 @@ def get_nearby():
                 display = raw_name
                 
             key = f"{display}_{itm['jibun']}"
-            if key not in properties:
-                properties[key] = {
-                    "id":       key,
-                    "label":    display,
-                    "sub":      itm['jibun'],
-                    "jibun":    itm['jibun'],       # <--- 핵심 1: 이거 누락돼서 좌표를 못 찾았음
-        "region_ctx": region_ctx,       # <--- 핵심 2: 카카오 API 정확도를 위해 추가
-                    "umd":      itm.get('umd', ''),
-                    "price":    f"{itm['price']:,}만원",
-                    "rawPrice": itm['price'],
-                    "txType":   itm['txType'],
-                    "monthly":  itm['monthly'],
-                    "year":     itm['year'],
-                    "code":     bjd_code,
-                    "apiType":  api_type,
-                    "bun":      itm['jibun'].split('-')[0],
-                    "ji":       itm['jibun'].split('-')[1] if '-' in itm['jibun'] else '0',
-                }
+            properties[key] = {
+                "id":       key,
+                "label":    display,
+                "sub":      itm['jibun'],
+                "jibun":    itm['jibun'],       # <--- 핵심 1: 이거 누락돼서 좌표를 못 찾았음
+                "region_ctx": region_ctx,       # <--- 핵심 2: 카카오 API 정확도를 위해 추가
+                "umd":      itm.get('umd', ''),
+                "price":    f"{itm['price']:,}만원",
+                "rawPrice": itm['price'],
+                "txType":   itm['txType'],
+                "monthly":  itm['monthly'],
+                "year":     itm['year'],
+                "code":     bjd_code,
+                "apiType":  api_type,
+                "bun":      itm['jibun'].split('-')[0],
+                "ji":       itm['jibun'].split('-')[1] if '-' in itm['jibun'] else '0',
+            }
 
         # [2] 공간 필터링 및 정렬 파라미터 획득
         sw_lat = request.args.get('swLat', type=float)

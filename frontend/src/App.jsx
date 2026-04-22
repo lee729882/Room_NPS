@@ -72,8 +72,14 @@ const PropertyItem = ({ item, isSelected, onClick }) => {
 
           <div className="flex justify-between items-end">
             <div className="flex flex-col">
-              <span className="text-[8px] font-black text-slate-300 uppercase leading-none mb-0.5">Approx. Price</span>
-              <span className="text-[14px] font-black text-blue-600 tracking-tighter leading-none">{item.price}</span>
+              <span className="text-[8px] font-black text-slate-300 uppercase leading-none mb-0.5">
+                {item.txType === '월세' ? 'Rent Price' : 'Estimated Price'}
+              </span>
+              <span className="text-[14px] font-black text-blue-600 tracking-tighter leading-none">
+                {item.txType === '월세' 
+                  ? `월세 ${item.rawPrice}/${item.monthly}만원` 
+                  : `${item.txType} ${item.price}`}
+              </span>
             </div>
             <div className="flex items-center gap-1">
               <span className={`text-[8px] font-black px-2 py-0.5 rounded-full ${item.year > '2015' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
@@ -359,11 +365,15 @@ function App() {
       const isSafe = item.year > '2015';
       const color = isSafe ? '#2563eb' : '#f59e0b';
 
+      const displayPrice = item.txType === '월세' 
+        ? `월세 ${item.rawPrice}/${item.monthly}` 
+        : `${item.txType} ${item.price.replace('만원', '')}`;
+
       const content = document.createElement('div');
       content.className = `flex flex-col items-center cursor-pointer transition-transform hover:scale-110`;
       content.innerHTML = `
         <div class="bg-white px-2 py-1 rounded-md shadow-md border-2 border-[${color}] mb-1">
-          <span class="text-[10px] font-black pointer-events-none" style="color: ${color}">${item.price}</span>
+          <span class="text-[10px] font-black pointer-events-none" style="color: ${color}">${displayPrice}</span>
         </div>
         <div class="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px]" style="border-t-color: ${color}"></div>
       `;
