@@ -15,41 +15,46 @@ const PropertyItem = ({ item, isSelected, onClick }) => {
         }`}
     >
       <div className="flex gap-4">
-        {/* ── Premium Thumbnail Wrapper ── */}
-        <div className="w-[72px] h-[72px] rounded-xl flex-shrink-0 overflow-hidden border border-slate-100 relative flex items-center justify-center shadow-inner group-hover:border-blue-200 transition-colors">
-          {thumbnailUrl && !imageError ? (
-            <>
-              <img
-                src={thumbnailUrl}
-                alt={item.label}
-                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-115"
-                onError={() => setImageError(true)}
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-40" />
-            </>
-          ) : (
-            <div className={`flex flex-col items-center justify-center w-full h-full transition-all duration-500 ${item.apiType?.includes('RH')
-                ? 'bg-gradient-to-br from-slate-50 to-indigo-50/50'
-                : 'bg-gradient-to-br from-slate-50 to-emerald-50/50'
-              } group-hover:from-blue-50 group-hover:to-indigo-50`}>
-              <div className="relative mb-1">
-                {item.apiType?.includes('RH') ? (
-                  <Building2 size={26} className="text-indigo-300 group-hover:text-blue-500 transition-colors drop-shadow-sm" />
+        <div className="w-20 h-20 rounded-xl flex-shrink-0 overflow-hidden border border-slate-100 relative shadow-inner group-hover:border-blue-200 transition-all duration-300">
+          {/* ── Base Layer: Type-based Theme Icons ── */}
+          {(() => {
+            const isAptOff = item.apiType?.includes('APT') || item.apiType?.includes('OFF');
+            const typeLabel = item.apiType?.includes('APT') ? '아파트' : (item.apiType?.includes('OFF') ? '오피스텔' : '빌라/주택');
+            
+            return (
+              <div className={`flex flex-col items-center justify-center w-full h-full ${
+                isAptOff ? 'bg-sky-50' : 'bg-emerald-50'
+              }`}>
+                {isAptOff ? (
+                  <Building2 size={24} className="text-sky-600 mb-1" />
                 ) : (
-                  <Home size={26} className="text-emerald-300 group-hover:text-blue-500 transition-colors drop-shadow-sm" />
+                  <Home size={24} className="text-emerald-600 mb-1" />
                 )}
+                <span className={`text-[8px] font-black uppercase tracking-tighter ${
+                  isAptOff ? 'text-sky-700' : 'text-emerald-700'
+                }`}>
+                  {typeLabel}
+                </span>
               </div>
-              <span className={`text-[7px] font-black uppercase tracking-widest ${item.apiType?.includes('RH') ? 'text-indigo-400' : 'text-emerald-400'
-                } group-hover:text-blue-600`}>
-                {item.apiType?.includes('RH') ? 'Premium Villa' : 'Modern House'}
-              </span>
-              <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
-            </div>
+            );
+          })()}
+
+          {/* ── Top Layer: Real Thumbnail (Hidden if Error) ── */}
+          {thumbnailUrl && (
+            <img
+              src={thumbnailUrl}
+              alt={item.label}
+              className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 group-hover:scale-110 ${
+                imageError ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100'
+              }`}
+              onError={() => setImageError(true)}
+            />
           )}
 
           {/* Status Indicator Dot */}
-          <div className={`absolute top-1.5 right-1.5 w-2 h-2 rounded-full border border-white shadow-sm ${item.year > '2015' ? 'bg-emerald-500' : 'bg-amber-500'
-            }`} />
+          <div className={`absolute top-1.5 right-1.5 w-2 h-2 rounded-full border border-white shadow-sm z-10 ${
+            item.year > '2015' ? 'bg-emerald-500' : 'bg-amber-500'
+          }`} />
         </div>
 
         {/* ── Info Section ── */}
@@ -93,6 +98,10 @@ function App() {
   const [isListLoading, setIsListLoading] = useState(false);
   const showHeatmapRef = useRef(false);
   const fetchIdRef = useRef(0);
+
+  const handleComingSoon = (menuName) => {
+    alert(`🚧 [${menuName}] 기능은 현재 개발 로드맵 상 다음 페이스에 예정되어 있습니다!\n\n이번 중간발표에서는 핵심 코어인 'NPS 기반 안심 진단 엔진'과 'AI 법률 리포트' 구현에 100% 집중했습니다. 최종 버전을 기대해 주세요! 🚀`);
+  };
 
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
@@ -495,10 +504,10 @@ function App() {
           </div>
           <nav className="hidden md:flex items-center gap-4 lg:gap-7 text-[12px] lg:text-[13px] font-bold text-slate-400">
             <span className="text-blue-600 flex items-center gap-1.5 cursor-pointer border-b-2 border-blue-600 h-14"><LayoutGrid size={15} /> 대시보드</span>
-            <span className="hover:text-slate-600 cursor-pointer flex items-center gap-1.5"><Search size={15} /> 검색</span>
-            <span className="hover:text-slate-600 cursor-pointer flex items-center gap-1.5"><User size={15} /> 내 매물</span>
-            <span className="hover:text-slate-600 cursor-pointer flex items-center gap-1.5"><Users size={15} /> 커뮤니티</span>
-            <span className="hover:text-slate-600 cursor-pointer flex items-center gap-1.5"><Settings size={15} /> 설정</span>
+            <span onClick={() => handleComingSoon('검색')} className="hover:text-slate-600 cursor-pointer flex items-center gap-1.5 transition-colors"><Search size={15} /> 검색</span>
+            <span onClick={() => handleComingSoon('내 매물')} className="hover:text-slate-600 cursor-pointer flex items-center gap-1.5 transition-colors"><User size={15} /> 내 매물</span>
+            <span onClick={() => handleComingSoon('커뮤니티')} className="hover:text-slate-600 cursor-pointer flex items-center gap-1.5 transition-colors"><Users size={15} /> 커뮤니티</span>
+            <span onClick={() => handleComingSoon('설정')} className="hover:text-slate-600 cursor-pointer flex items-center gap-1.5 transition-colors"><Settings size={15} /> 설정</span>
           </nav>
         </div>
         <div className="flex items-center gap-3 md:gap-4">
