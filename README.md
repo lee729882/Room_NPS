@@ -10,6 +10,7 @@
   <img src="https://img.shields.io/badge/Kakao_Maps-FFCD00?style=for-the-badge&logo=Kakao&logoColor=black"/>
   <img src="https://img.shields.io/badge/Llama_3-0466C8?style=for-the-badge&logo=Meta&logoColor=white"/>
 </p>
+<img width="569" height="300" alt="image" src="https://github.com/user-attachments/assets/bef5b923-edd8-4022-bf55-c45fd6d3882e" />
 
 ---
 
