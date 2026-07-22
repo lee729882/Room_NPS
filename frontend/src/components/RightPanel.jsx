@@ -111,10 +111,217 @@ const WasteCard = ({ regionName }) => {
   );
 };
 
+// ── [NEW] 주변 매물 K-means 군집 분석 SVG 산점도 모달 ──
+const RiskScatterCard = ({ listings = [], selectedBuilding, onClose }) => {
+  const [clusterState, setClusterState] = useState({ loading: true, available: false, points: [], reason: '' });
+
+  const PALETTE = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444'];
+
+  useEffect(() => {
+    if (!listings || listings.length === 0) {
+      setClusterState({ loading: false, available: false, points: [], reason: '매물 정보 없음' });
+      return;
+    }
+
+    let isMounted = true;
+    setClusterState({ loading: true, available: false, points: [], reason: '' });
+
+    fetch('http://localhost:5000/api/cluster-nearby', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ listings })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (!isMounted) return;
+        if (data.available && Array.isArray(data.points)) {
+          setClusterState({ loading: false, available: true, points: data.points, reason: '' });
+        } else {
+          setClusterState({ loading: false, available: false, points: [], reason: data.reason || '전세 표본 부족' });
+        }
+      })
+      .catch(err => {
+        if (!isMounted) return;
+        setClusterState({ loading: false, available: false, points: [], reason: '통신 오류' });
+      });
+
+    return () => { isMounted = false; };
+  }, [listings]);
+
+  if (!listings || listings.length === 0) return null;
+
+  const points = clusterState.points || [];
+
+  // 선택 매물과 일치하는 포인트 탐색
+  const selectedPoint = points.find(p => {
+    if (!selectedBuilding) return false;
+    const bLabel = selectedBuilding.label || selectedBuilding.title || selectedBuilding.name || '';
+    return (bLabel && p.label && bLabel === p.label) || (selectedBuilding.lat === p.lat && selectedBuilding.lng === p.lng);
+  });
+
+  // 축 범위 (x: relPrice, y: year)
+  const relPrices = points.map(p => p.relPrice);
+  const minX = relPrices.length ? Math.min(...relPrices) : 0.5;
+  const maxX = relPrices.length ? Math.max(...relPrices) : 1.5;
+  const minX_pad = Math.max(0.1, minX * 0.9);
+  const maxX_pad = maxX * 1.1 === minX_pad ? minX_pad + 0.5 : maxX * 1.1;
+
+  const years = points.map(p => p.year);
+  const minY = years.length ? Math.min(...years, 1995) : 1995;
+  const maxY = years.length ? Math.max(...years, 2025) : 2025;
+
+  const W = 400;
+  const H = 260;
+  const padL = 50;
+  const padR = 20;
+  const padT = 20;
+  const padB = 35;
+
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+
+  const getX = (relPrice) => padL + ((relPrice - minX_pad) / (maxX_pad - minX_pad || 1)) * chartW;
+  const getY = (year) => padT + chartH - ((year - minY) / (maxY - minY || 1)) * chartH;
+
+  // 고유 클러스터 라벨 목록
+  const uniqueClusters = Array.from(new Set(points.map(p => p.clusterId))).map(cid => {
+    const pt = points.find(p => p.clusterId === cid);
+    return { clusterId: cid, label: pt ? pt.clusterLabel : `군집 ${cid}` };
+  }).sort((a, b) => a.clusterId - b.clusterId);
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl p-6 shadow-2xl max-w-[480px] w-full relative space-y-4"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* 닫기 버튼 */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-sm"
+        >
+          ✕
+        </button>
+
+        <div className="flex justify-between items-start pr-8">
+          <div>
+            <h3 className="text-[15px] font-black text-slate-800 flex items-center gap-2">
+              <TrendingUp size={16} className="text-blue-600" /> AI K-means 매물 군집 분석
+            </h3>
+            <p className="text-[11px] font-bold text-slate-400 mt-1">
+              종류별 상대가격 및 연식 기반 AI 군집 지도
+            </p>
+          </div>
+        </div>
+
+        {/* 선택 매물 분류 결과 강조 바 */}
+        {selectedPoint && (
+          <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 text-[11px] font-bold text-blue-900 flex items-center justify-between">
+            <span>선택 매물: <strong className="text-blue-700">[{selectedPoint.label}]</strong></span>
+            <span className="bg-blue-600 text-white px-2.5 py-0.5 rounded-full text-[10px] font-black">
+              AI 분류: {selectedPoint.clusterLabel}
+            </span>
+          </div>
+        )}
+
+        {/* 로딩 상태 / 표본 부족 상태 / 차트 */}
+        {clusterState.loading ? (
+          <div className="h-[220px] bg-slate-50 border border-slate-100 rounded-xl flex flex-col items-center justify-center space-y-2">
+            <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            <p className="text-[11px] font-black text-slate-600">AI K-means 군집 분석 중...</p>
+          </div>
+        ) : !clusterState.available ? (
+          <div className="h-[180px] bg-amber-50/70 border border-amber-100 rounded-xl flex flex-col items-center justify-center p-6 text-center">
+            <p className="text-[12px] font-black text-amber-800 mb-1">이 지역은 전세 표본이 부족하여 K-means 군집 분석을 제공하지 않습니다</p>
+            <p className="text-[10px] font-bold text-amber-600/80">(최소 전세 거래 8건 이상 필요)</p>
+          </div>
+        ) : (
+          <>
+            {/* 범례 */}
+            <div className="flex flex-wrap items-center justify-end gap-2.5 text-[8.5px] font-extrabold bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-full w-fit ml-auto">
+              {uniqueClusters.map(uc => (
+                <span key={uc.clusterId} className="flex items-center gap-1">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: PALETTE[uc.clusterId % PALETTE.length] }} />
+                  {uc.label}
+                </span>
+              ))}
+            </div>
+
+            {/* SVG 산점도 */}
+            <div className="bg-slate-50/80 border border-slate-100 rounded-xl p-3 flex justify-center">
+              <svg width={W} height={H} className="overflow-visible">
+                {/* 격자선 */}
+                <line x1={padL} y1={padT + chartH / 2} x2={W - padR} y2={padT + chartH / 2} stroke="#e2e8f0" strokeDasharray="3 3" />
+                <line x1={padL + chartW / 2} y1={padT} x2={padL + chartW / 2} y2={H - padB} stroke="#e2e8f0" strokeDasharray="3 3" />
+
+                {/* X/Y 축 */}
+                <line x1={padL} y1={H - padB} x2={W - padR} y2={H - padB} stroke="#cbd5e1" strokeWidth="1.5" />
+                <line x1={padL} y1={padT} x2={padL} y2={H - padB} stroke="#cbd5e1" strokeWidth="1.5" />
+
+                {/* 축 라벨 */}
+                <text x={W - padR} y={H - 10} fontSize="8.5" fontWeight="bold" fill="#64748b" textAnchor="end">종류내 상대가격 →</text>
+                <text x={5} y={padT - 5} fontSize="8.5" fontWeight="bold" fill="#64748b" textAnchor="start">↑ 준공연도</text>
+
+                {/* 축 눈금 텍스트 */}
+                <text x={padL} y={H - padB + 14} fontSize="8" fill="#94a3b8" textAnchor="middle">{minX_pad.toFixed(1)}x</text>
+                <text x={W - padR} y={H - padB + 14} fontSize="8" fill="#94a3b8" textAnchor="middle">{maxX_pad.toFixed(1)}x</text>
+                <text x={padL - 5} y={H - padB} fontSize="8" fill="#94a3b8" textAnchor="end">{minY}</text>
+                <text x={padL - 5} y={padT + 8} fontSize="8" fill="#94a3b8" textAnchor="end">{maxY}</text>
+
+                {/* 데이터 데이터 포인트 */}
+                {points.map((p, i) => {
+                  const cx = getX(p.relPrice);
+                  const cy = getY(p.year);
+                  const color = PALETTE[p.clusterId % PALETTE.length];
+
+                  const isSelected = selectedPoint && selectedPoint.index === p.index;
+
+                  if (isSelected) {
+                    return (
+                      <g key={i} className="cursor-pointer">
+                        <circle cx={cx} cy={cy} r="9" fill="none" stroke="#0f172a" strokeWidth="1.5" opacity="0.4" />
+                        <text x={cx} y={cy + 5} fontSize="15" fontWeight="bold" fill="#0f172a" textAnchor="middle">★</text>
+                      </g>
+                    );
+                  }
+
+                  return (
+                    <circle
+                      key={i}
+                      cx={cx}
+                      cy={cy}
+                      r="5.5"
+                      fill={color}
+                      stroke="#ffffff"
+                      strokeWidth="1.5"
+                      opacity="0.85"
+                      className="hover:opacity-100 cursor-pointer"
+                    >
+                      <title>{`${p.label} [${p.clusterLabel}]: 상대가격 ${p.relPrice}배 (${p.year}년)`}</title>
+                    </circle>
+                  );
+                })}
+              </svg>
+            </div>
+          </>
+        )}
+
+        <p className="text-[10px] font-bold text-slate-400 text-center tracking-tight">
+          동일 매물 종류(아파트/빌라) 평균 대비 상대 가격 지표 기반 K-means 군집화
+        </p>
+      </div>
+    </div>
+  );
+};
+
 // ── 메인 컴포넌트 ──
-const RightPanel = ({ selectedBuilding, regionName }) => {
+const RightPanel = ({ selectedBuilding, regionName, listings = [] }) => {
   const roadviewRef = useRef(null);
   const [msgIdx, setMsgIdx] = useState(0);
+  const [showScatterModal, setShowScatterModal] = useState(false);
 
   const analysis = selectedBuilding?.analysis || {};
   const loading = selectedBuilding?.loading;
@@ -335,10 +542,80 @@ const RightPanel = ({ selectedBuilding, regionName }) => {
             ))}
           </div>
         </div>
+
+        {/* ── [NEW] AI 위험유형 배지 (riskCluster) ── */}
+        {analysis?.riskCluster?.available && (
+          <div className={`mt-3.5 p-3 rounded-xl border flex flex-col gap-1 ${
+            analysis.riskCluster.clusterLabel === '안전형'
+              ? 'bg-emerald-50/90 border-emerald-200 text-emerald-800'
+              : 'bg-amber-50/90 border-amber-200 text-amber-900'
+          }`}>
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-extrabold tracking-widest text-slate-400 uppercase">AI 위험유형 분류</span>
+              <span className={`text-[11px] font-black px-2.5 py-0.5 rounded-full ${
+                analysis.riskCluster.clusterLabel === '안전형'
+                  ? 'bg-emerald-500 text-white shadow-sm'
+                  : 'bg-amber-500 text-white shadow-sm'
+              }`}>
+                {analysis.riskCluster.clusterLabel}
+              </span>
+            </div>
+            <p className="text-[10px] font-medium opacity-90 leading-tight">
+              {analysis.riskCluster.description}
+            </p>
+          </div>
+        )}
+
         <SourceLabel text="국토교통부 실거래가 / 브이월드 / 건축HUB" />
       </div>
 
       <div className="p-4 lg:p-5 space-y-6">
+
+        {/* ── [NEW] AI 이상치 분석 카드 (priceAnomaly) ── */}
+        {analysis?.priceAnomaly?.available && (
+          <section className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm space-y-3">
+            <div className="flex justify-between items-center">
+              <h3 className="text-[12px] font-black text-slate-800 flex items-center gap-1.5">
+                <Cpu size={13} className="text-blue-600" /> AI 이상치 분석
+              </h3>
+              <span className="text-[8px] font-bold text-slate-400 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-full">
+                표본 {analysis.priceAnomaly.sampleSize}건
+              </span>
+            </div>
+
+            {/* 게이지 수평 바 (동네 평균 vs 현재 매물) */}
+            <div className="space-y-1.5 bg-slate-50/80 rounded-xl p-3 border border-slate-100">
+              <div className="flex justify-between text-[9px] font-bold text-slate-500 mb-1">
+                <span>동네 평균: <strong className="text-slate-800">{analysis.priceAnomaly.neighborhoodAvg}%</strong></span>
+                <span>현재 매물: <strong className={analysis.priceAnomaly.isAnomaly ? "text-red-600" : "text-emerald-600"}>{analysis.priceAnomaly.currentRatio}%</strong></span>
+              </div>
+              <div className="relative h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                {/* 동네 평균 표시선 */}
+                <div
+                  className="absolute top-0 bottom-0 w-0.5 bg-slate-600 z-10"
+                  style={{ left: `${Math.min(Math.max(analysis.priceAnomaly.neighborhoodAvg, 0), 100)}%` }}
+                  title={`동네 평균 ${analysis.priceAnomaly.neighborhoodAvg}%`}
+                />
+                {/* 현재 매물 바 */}
+                <div
+                  className={`h-full rounded-full transition-all duration-700 ${
+                    analysis.priceAnomaly.isAnomaly ? 'bg-red-500' : 'bg-emerald-500'
+                  }`}
+                  style={{ width: `${Math.min(Math.max(analysis.priceAnomaly.currentRatio, 0), 100)}%` }}
+                />
+              </div>
+            </div>
+
+            {/* 강조 메세지 */}
+            <div className={`px-3 py-2 rounded-xl text-[10px] font-bold ${
+              analysis.priceAnomaly.isAnomaly
+                ? 'bg-red-50 text-red-700 border border-red-100'
+                : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+            }`}>
+              {analysis.priceAnomaly.message}
+            </div>
+          </section>
+        )}
 
         {/* ── 실거래 추이 ── */}
         <section>
@@ -648,7 +925,29 @@ const RightPanel = ({ selectedBuilding, regionName }) => {
           </div>
         </section>
 
+        {/* ── [NEW] AI 지역 분포 모달 열기 버튼 ── */}
+        {listings && listings.length > 0 && (
+          <div className="pt-2">
+            <button
+              onClick={() => setShowScatterModal(true)}
+              className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 px-4 rounded-xl text-[11px] shadow-sm flex items-center justify-center gap-2 transition-all"
+            >
+              <TrendingUp size={14} className="text-blue-400" />
+              <span>AI 지역 매물 분포 산점도 보기 ({listings.length}개 분석)</span>
+            </button>
+          </div>
+        )}
+
       </div>
+
+      {/* ── 화면 중앙 모달 ── */}
+      {showScatterModal && (
+        <RiskScatterCard
+          listings={listings}
+          selectedBuilding={selectedBuilding}
+          onClose={() => setShowScatterModal(false)}
+        />
+      )}
     </div>
   );
 };

@@ -717,7 +717,7 @@ function App() {
           )}
         </div>
 
-        <RightPanel selectedBuilding={selectedBuilding} regionName={currentRegionRef.current} isListLoading={isListLoading} />
+        <RightPanel selectedBuilding={selectedBuilding} regionName={currentRegionRef.current} isListLoading={isListLoading} listings={listings} />
       </main>
     </div>
   );
