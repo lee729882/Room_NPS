@@ -503,6 +503,8 @@ function App() {
           is_violation: data.building?.isVilo === '1',
           building_name: item.label,
           region_name: currentRegionRef.current,
+          priceAnomaly: data.priceAnomaly,
+          riskCluster: data.riskCluster
         })
       })
         .then(res => res.json())
