@@ -328,11 +328,11 @@ const RightPanel = ({ selectedBuilding, regionName, listings = [] }) => {
   const details = analysis?.details || {};
   const safemap = analysis?.safemap || {};
   const building = analysis?.building || {};
-    const npsBreak = analysis?.npsBreakdown || {};
-    const diagnosis = analysis?.diagnosis || {};
-  
-    const aiLoading = selectedBuilding?.aiLoading;
-    const aiReport = selectedBuilding?.aiReport;
+  const npsBreak = analysis?.npsBreakdown || {};
+  const diagnosis = analysis?.diagnosis || {};
+
+  const aiLoading = selectedBuilding?.aiLoading;
+  const aiReport = selectedBuilding?.aiReport;
 
   const zoneStatus = safemap.zoneStatus || 'safe';
   const warningMsg = safemap.warningMsg || '';
@@ -545,18 +545,16 @@ const RightPanel = ({ selectedBuilding, regionName, listings = [] }) => {
 
         {/* ── [NEW] AI 위험유형 배지 (riskCluster) ── */}
         {analysis?.riskCluster?.available && (
-          <div className={`mt-3.5 p-3 rounded-xl border flex flex-col gap-1 ${
-            analysis.riskCluster.clusterLabel === '안전형'
+          <div className={`mt-3.5 p-3 rounded-xl border flex flex-col gap-1 ${analysis.riskCluster.clusterLabel === '안전형'
               ? 'bg-emerald-50/90 border-emerald-200 text-emerald-800'
               : 'bg-amber-50/90 border-amber-200 text-amber-900'
-          }`}>
+            }`}>
             <div className="flex items-center justify-between">
               <span className="text-[9px] font-extrabold tracking-widest text-slate-400 uppercase">AI 위험유형 분류</span>
-              <span className={`text-[11px] font-black px-2.5 py-0.5 rounded-full ${
-                analysis.riskCluster.clusterLabel === '안전형'
+              <span className={`text-[11px] font-black px-2.5 py-0.5 rounded-full ${analysis.riskCluster.clusterLabel === '안전형'
                   ? 'bg-emerald-500 text-white shadow-sm'
                   : 'bg-amber-500 text-white shadow-sm'
-              }`}>
+                }`}>
                 {analysis.riskCluster.clusterLabel}
               </span>
             </div>
@@ -598,20 +596,18 @@ const RightPanel = ({ selectedBuilding, regionName, listings = [] }) => {
                 />
                 {/* 현재 매물 바 */}
                 <div
-                  className={`h-full rounded-full transition-all duration-700 ${
-                    analysis.priceAnomaly.isAnomaly ? 'bg-red-500' : 'bg-emerald-500'
-                  }`}
+                  className={`h-full rounded-full transition-all duration-700 ${analysis.priceAnomaly.isAnomaly ? 'bg-red-500' : 'bg-emerald-500'
+                    }`}
                   style={{ width: `${Math.min(Math.max(analysis.priceAnomaly.currentRatio, 0), 100)}%` }}
                 />
               </div>
             </div>
 
             {/* 강조 메세지 */}
-            <div className={`px-3 py-2 rounded-xl text-[10px] font-bold ${
-              analysis.priceAnomaly.isAnomaly
+            <div className={`px-3 py-2 rounded-xl text-[10px] font-bold ${analysis.priceAnomaly.isAnomaly
                 ? 'bg-red-50 text-red-700 border border-red-100'
                 : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-            }`}>
+              }`}>
               {analysis.priceAnomaly.message}
             </div>
           </section>
@@ -692,7 +688,7 @@ const RightPanel = ({ selectedBuilding, regionName, listings = [] }) => {
               <ShieldAlert size={13} className="text-purple-600" /> 데이터 기반 안심 리포트
             </h3>
             <span className={`text-[7px] font-bold px-2 py-0.5 rounded-full border ${safeSource === 'analysis_report' ? 'bg-purple-50 text-purple-600 border-purple-100'
-                  : 'bg-slate-50 text-slate-400 border-slate-100'
+              : 'bg-slate-50 text-slate-400 border-slate-100'
               }`}>
               {safeSource === 'analysis_report' ? 'REPORT READY' : 'LOADING...'}
             </span>
@@ -701,8 +697,8 @@ const RightPanel = ({ selectedBuilding, regionName, listings = [] }) => {
           <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
             {/* 치안 상태 종합 진단 메시지 카드 */}
             <div className={`rounded-xl px-3 py-2.5 text-[10px] font-bold flex flex-col gap-1.5 ${zoneStatus === 'danger' ? 'bg-red-50 text-red-700 border border-red-100'
-                : zoneStatus === 'caution' ? 'bg-amber-50 text-amber-700 border border-amber-100'
-                  : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+              : zoneStatus === 'caution' ? 'bg-amber-50 text-amber-700 border border-amber-100'
+                : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
               }`}>
               <div className="flex items-center gap-1.5 mb-0.5">
                 <CheckCircle2 size={13} />
@@ -732,7 +728,7 @@ const RightPanel = ({ selectedBuilding, regionName, listings = [] }) => {
                 </ResponsiveContainer>
               </div>
             </div>
-            
+
             <SourceLabel text={safeSourceLabel} />
           </div>
         </section>
@@ -744,8 +740,8 @@ const RightPanel = ({ selectedBuilding, regionName, listings = [] }) => {
             <h3 className="text-[11px] font-black text-slate-800 uppercase tracking-widest">건물 Attributes</h3>
             {/* 위반건축물 뱃지 */}
             <span className={`ml-auto text-[10px] font-black px-2.5 py-1 rounded-full ${viloIsVio ? 'bg-red-600 text-white animate-pulse shadow-md border border-red-700'
-                : viloUnknown ? 'bg-slate-100 text-slate-400'
-                  : 'bg-emerald-100 text-emerald-600'
+              : viloUnknown ? 'bg-slate-100 text-slate-400'
+                : 'bg-emerald-100 text-emerald-600'
               }`}>
               {viloIsVio ? '🚨 위반건축물 등재 이력 있음' : viloUnknown ? '정보없음' : '✓ 정상'}
             </span>
@@ -831,7 +827,7 @@ const RightPanel = ({ selectedBuilding, regionName, listings = [] }) => {
                     <span className="text-[12px]">{(building.area_formatted || details.area_formatted || building.areaFmt).split('(')[0].trim()}</span>
                     {(building.area_formatted || details.area_formatted || building.areaFmt).includes('(') && (
                       <span className="font-semibold text-slate-400 text-[9px]">
-                         ({(building.area_formatted || details.area_formatted || building.areaFmt).split('(')[1]}
+                        ({(building.area_formatted || details.area_formatted || building.areaFmt).split('(')[1]}
                       </span>
                     )}
                   </div>
@@ -879,7 +875,7 @@ const RightPanel = ({ selectedBuilding, regionName, listings = [] }) => {
         <section className="bg-white border border-blue-100 rounded-2xl p-5 space-y-4 shadow-sm relative overflow-hidden">
           {/* Decorative background element */}
           <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50/50 rounded-full -mr-12 -mt-12 blur-2xl" />
-          
+
           <div className="flex items-center justify-between relative z-10">
             <h3 className="text-[11px] font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
               <Scale size={14} className="text-blue-600" /> AI 법률 리포트 (LLAMA3-70B)
@@ -899,16 +895,53 @@ const RightPanel = ({ selectedBuilding, regionName, listings = [] }) => {
                   <div className="w-1 h-1 bg-blue-500 rounded-full animate-bounce" />
                 </div>
                 <p className="text-[10px] font-black text-blue-600 animate-pulse">변호사가 법률 검토 중...</p>
-                <p className="text-[8px] text-slate-400 font-medium text-center">주택임대차보호법 기반 리스크를<br/>심층 분석하고 있습니다</p>
+                <p className="text-[8px] text-slate-400 font-medium text-center">주택임대차보호법 기반 리스크를<br />심층 분석하고 있습니다</p>
               </div>
             ) : aiReport ? (
-              <div className="prose prose-slate prose-xs max-w-none text-slate-700 text-[10px] leading-relaxed font-medium markdown-content">
-                {/* ReactMarkdown이 설치되어 있다면 사용, 아니면 일반 텍스트 출력 */}
-                {typeof ReactMarkdown !== 'undefined' ? (
-                  <ReactMarkdown>{aiReport}</ReactMarkdown>
-                ) : (
-                  <div style={{ whiteSpace: 'pre-wrap' }}>{aiReport}</div>
-                )}
+              <div className="space-y-2.5">
+                {(() => {
+                  // ### 기준으로 섹션 분리
+                  const getTheme = (title) => {
+                    if (title.includes('요약')) return { bg: 'bg-blue-50', bd: 'border-blue-400', tx: 'text-blue-700' };
+                    if (title.includes('권리') || title.includes('임대차')) return { bg: 'bg-purple-50', bd: 'border-purple-400', tx: 'text-purple-700' };
+                    if (title.includes('리스크') || title.includes('위험')) return { bg: 'bg-amber-50', bd: 'border-amber-400', tx: 'text-amber-700' };
+                    if (title.includes('보건') || title.includes('의료')) return { bg: 'bg-emerald-50', bd: 'border-emerald-400', tx: 'text-emerald-700' };
+                    if (title.includes('청년') || title.includes('정주') || title.includes('정책')) return { bg: 'bg-teal-50', bd: 'border-teal-400', tx: 'text-teal-700' };
+                    return { bg: 'bg-slate-50', bd: 'border-slate-400', tx: 'text-slate-700' };
+                  };
+
+                  try {
+                    const parts = aiReport.split(/(?=###\s)/g).filter(s => s.trim());
+                    if (parts.length === 0) throw new Error('no sections');
+
+                    return parts.map((part, i) => {
+                      const lines = part.replace(/^###\s*/, '').split('\n');
+                      const title = lines[0].replace(/\*\*/g, '').trim();
+                      const body = lines.slice(1).join('\n').trim();
+                      const theme = getTheme(title);
+
+                      return (
+                        <div key={i} className={`${theme.bg} border-l-4 ${theme.bd} rounded-lg p-3`}>
+                          <div className={`text-[11px] font-black ${theme.tx} mb-1`}>{title}</div>
+                          <div className="text-[10px] leading-relaxed text-slate-600 markdown-content prose prose-xs max-w-none">
+                            {typeof ReactMarkdown !== 'undefined'
+                              ? <ReactMarkdown>{body}</ReactMarkdown>
+                              : <div style={{ whiteSpace: 'pre-wrap' }}>{body}</div>}
+                          </div>
+                        </div>
+                      );
+                    });
+                  } catch (e) {
+                    // 폴백: 파싱 실패 시 기존 방식
+                    return (
+                      <div className="prose prose-slate prose-xs max-w-none text-slate-700 text-[10px] leading-relaxed font-medium markdown-content">
+                        {typeof ReactMarkdown !== 'undefined'
+                          ? <ReactMarkdown>{aiReport}</ReactMarkdown>
+                          : <div style={{ whiteSpace: 'pre-wrap' }}>{aiReport}</div>}
+                      </div>
+                    );
+                  }
+                })()}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-6 opacity-40">
@@ -917,7 +950,7 @@ const RightPanel = ({ selectedBuilding, regionName, listings = [] }) => {
               </div>
             )}
           </div>
-          
+
           <div className="bg-blue-50/50 rounded-lg px-3 py-2 border border-blue-100/50">
             <p className="text-[8px] font-bold text-slate-400 leading-tight">
               ※ 본 리포트는 AI(LLAMA3-70B)가 주택임대차보호법을 근거로 작성한 참고용 분석이며, 법적 효력이 없습니다. 실제 계약 전 전문가와 상담하십시오.
