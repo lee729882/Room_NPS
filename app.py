@@ -17,6 +17,10 @@ import math
 import json
 from requests.adapters import HTTPAdapter
 from openai import OpenAI
+import numpy as np
+from sklearn.ensemble import IsolationForest
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
 
 load_dotenv()
 
@@ -32,6 +36,289 @@ log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)
+
+# ─────────────────────────────────────────────────────────────
+# [AI-A2] 위험유형 군집화 모델 초기화
+# ─────────────────────────────────────────────────────────────
+RISK_KMEANS = None
+RISK_SCALER = None
+CLUSTER_LABEL_MAP = {}
+
+def _init_risk_kmeans():
+    global RISK_KMEANS, RISK_SCALER, CLUSTER_LABEL_MAP
+    try:
+        np.random.seed(42)
+        # 대표 프로파일 4가지 (age, ratio, sec, viol)
+        # 1. 안전형: 전반적으로 고점수 (80~100)
+        safe_samples = np.random.normal(loc=[90, 90, 90, 90], scale=5, size=(50, 4))
+        # 2. 노후위험형: ageScore가 낮음 (20~40)
+        age_risk_samples = np.random.normal(loc=[30, 80, 80, 80], scale=5, size=(50, 4))
+        # 3. 전세가율위험형: ratioScore가 낮음 (20~40)
+        ratio_risk_samples = np.random.normal(loc=[80, 30, 80, 80], scale=5, size=(50, 4))
+        # 4. 복합위험형: 전반적으로 낮음 (20~50)
+        multi_risk_samples = np.random.normal(loc=[40, 40, 40, 40], scale=5, size=(50, 4))
+
+        X = np.vstack([safe_samples, age_risk_samples, ratio_risk_samples, multi_risk_samples])
+        X = np.clip(X, 0, 100)
+
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+
+        kmeans = KMeans(n_clusters=4, random_state=42, n_init=10)
+        kmeans.fit(X_scaled)
+
+        RISK_KMEANS = kmeans
+        RISK_SCALER = scaler
+
+        # 클러스터 중심점 분석 및 라벨 매핑
+        centers = scaler.inverse_transform(kmeans.cluster_centers_)
+        label_map = {}
+        for idx, center in enumerate(centers):
+            age_c, ratio_c, sec_c, viol_c = center
+            mean_c = np.mean(center)
+
+            if mean_c >= 75 and min(center) >= 60:
+                label_info = {
+                    "clusterLabel": "안전형",
+                    "description": "건물 노후도, 전세가율, 주변 안전도 및 건축법규 준수 상태가 전반적으로 양호한 매물"
+                }
+            elif ratio_c < age_c and ratio_c < sec_c and ratio_c < 65:
+                label_info = {
+                    "clusterLabel": "전세가율 위험군",
+                    "description": "매매가 대비 보증금이 높아 깡통주택 위험이 있는 유형"
+                }
+            elif age_c < ratio_c and age_c < sec_c and age_c < 65:
+                label_info = {
+                    "clusterLabel": "노후위험형",
+                    "description": "건물 연식이 오래되어 시설물 노후화 및 유지보수 점검이 필요한 유형"
+                }
+            else:
+                label_info = {
+                    "clusterLabel": "복합위험형",
+                    "description": "전세가율, 건물 연식, 안전도 등 복합적인 주의가 필요한 유형"
+                }
+            label_info["clusterId"] = int(idx)
+            label_map[idx] = label_info
+
+        CLUSTER_LABEL_MAP = label_map
+        log.info("[AI-A2] K-means 위험유형 군집화 모델 초기화 완료 (클러스터 4개)")
+    except Exception as e:
+        log.error(f"[AI-A2] K-means 모델 초기화 실패: {e}")
+        RISK_KMEANS = None
+        RISK_SCALER = None
+        CLUSTER_LABEL_MAP = {}
+
+_init_risk_kmeans()
+
+
+# ─────────────────────────────────────────────────────────────
+# [AI-A1] 전세가율 이상치 탐지 함수
+# ─────────────────────────────────────────────────────────────
+def detect_price_anomaly(trend_data, current_ratio):
+    try:
+        if current_ratio is None or current_ratio <= 0:
+            return {"available": False}
+
+        sample_ratios = []
+        for row in trend_data:
+            try:
+                rent = row.get("전세보증금")
+                trade = row.get("매매가")
+                if rent is not None and trade is not None and trade > 0 and rent > 0:
+                    r = (rent / trade) * 100.0
+                    if 0 < r <= 200:
+                        sample_ratios.append(r)
+            except Exception:
+                continue
+
+        if len(sample_ratios) < 5:
+            return {"available": False}
+
+        ratios_arr = np.array(sample_ratios, dtype=float)
+        iso = IsolationForest(contamination=0.1, random_state=42)
+        iso.fit(ratios_arr.reshape(-1, 1))
+
+        curr_arr = np.array([[current_ratio]])
+        pred = iso.predict(curr_arr)[0]  # -1이면 이상치, 1이면 정상
+
+        neighborhood_avg = float(np.round(np.mean(ratios_arr), 1))
+        current_ratio_val = float(np.round(current_ratio, 1))
+
+        # 전세가율이 동네 평균보다 높은 쪽으로 벗어난 경우에만 이상치(위험)로 판정
+        is_anomaly = bool(pred == -1 and current_ratio > neighborhood_avg)
+        percentile = float(np.round((np.sum(ratios_arr <= current_ratio) / len(ratios_arr)) * 100, 1))
+        percentile_top = float(np.round(100.0 - percentile, 1))
+
+        if is_anomaly:
+            msg = "주변 대비 전세가율이 높음 — 깡통주택 의심"
+        elif current_ratio < neighborhood_avg:
+            msg = "주변 대비 전세가율이 낮아 안전한 편"
+        else:
+            msg = "주변 시세 범위 내 정상 수준"
+
+        return {
+            "available": True,
+            "isAnomaly": is_anomaly,
+            "percentile": percentile,
+            "neighborhoodAvg": neighborhood_avg,
+            "currentRatio": current_ratio_val,
+            "sampleSize": len(ratios_arr),
+            "message": msg
+        }
+    except Exception as e:
+        log.error(f"[AI-A1] detect_price_anomaly 예외 발생: {e}")
+        return {"available": False}
+
+
+# ─────────────────────────────────────────────────────────────
+# [AI-A2] 위험유형 군집화 분류 함수
+# ─────────────────────────────────────────────────────────────
+def classify_risk_cluster(age_score, ratio_score, sec_score, viol_score):
+    try:
+        if RISK_KMEANS is None or RISK_SCALER is None:
+            return {"available": False}
+
+        features = np.array([[age_score, ratio_score, sec_score, viol_score]])
+        scaled_feat = RISK_SCALER.transform(features)
+        cluster_id = int(RISK_KMEANS.predict(scaled_feat)[0])
+
+        info = CLUSTER_LABEL_MAP.get(cluster_id, {
+            "clusterLabel": "미분류",
+            "description": "위험 유형 분류 정보를 불러올 수 없습니다.",
+            "clusterId": cluster_id
+        })
+
+        return {
+            "available": True,
+            "clusterLabel": info["clusterLabel"],
+            "description": info["description"],
+            "clusterId": info["clusterId"]
+        }
+    except Exception as e:
+        log.error(f"[AI-A2] classify_risk_cluster 예외 발생: {e}")
+        return {"available": False}
+
+
+# ─────────────────────────────────────────────────────────────
+# [AI-A2-SCATTER] 주변 매물 K-means 군집화 엔드포인트
+# ─────────────────────────────────────────────────────────────
+@app.route('/api/cluster-nearby', methods=['POST'])
+def cluster_nearby():
+    try:
+        data = request.json or {}
+        listings = data.get('listings', [])
+        
+        # 1. 전세 매물만 필터링 (txType == '전세')
+        rent_items = []
+        for itm in listings:
+            if not isinstance(itm, dict):
+                continue
+            tx_type = str(itm.get('txType', '')).strip()
+            if tx_type in ('전세', '월세'):
+                rent_items.append(itm)
+
+        if len(rent_items) < 5:
+            return jsonify({"available": False, "reason": "표본 부족"})
+
+        # 2. 가격 및 연식 정제 + apiType별 평균 가격 산출
+        type_prices = {}
+        type_counts = {}
+        
+        cleaned_list = []
+        for idx, itm in enumerate(rent_items):
+            raw_p = itm.get('rawPrice')
+            if not isinstance(raw_p, (int, float)) or raw_p <= 0:
+                p_str = str(itm.get('price', ''))
+                raw_p = float(re.sub(r'[^0-9.]', '', p_str)) if re.sub(r'[^0-9.]', '', p_str) else 0.0
+            
+            if raw_p <= 0 and isinstance(itm.get('deposit'), (int, float)) and itm.get('deposit') > 0:
+                raw_p = float(itm.get('deposit'))
+
+            if raw_p <= 0:
+                continue
+
+            try:
+                yr = int(itm.get('year', 2010))
+            except Exception:
+                yr = 2010
+
+            api_type = str(itm.get('apiType', 'UNKNOWN')).strip() or 'UNKNOWN'
+            label = str(itm.get('label') or itm.get('title') or itm.get('name') or f"매물 {idx+1}")
+
+            cleaned_list.append({
+                "index": idx,
+                "label": label,
+                "rawPrice": raw_p,
+                "year": yr,
+                "apiType": api_type,
+                "lat": itm.get('lat'),
+                "lng": itm.get('lng')
+            })
+
+            type_prices[api_type] = type_prices.get(api_type, 0.0) + raw_p
+            type_counts[api_type] = type_counts.get(api_type, 0) + 1
+
+        if len(cleaned_list) < 8:
+            return jsonify({"available": False, "reason": "표본 부족"})
+
+        type_avg = {t: type_prices[t] / type_counts[t] for t in type_prices}
+
+        # 3. 피처 생성: a) 종류내_상대가격 b) 연식
+        features = []
+        for item in cleaned_list:
+            t = item["apiType"]
+            avg_p = type_avg.get(t, item["rawPrice"])
+            rel_price = (item["rawPrice"] / avg_p) if (avg_p > 0 and type_counts.get(t, 0) > 1) else 1.0
+            item["relPrice"] = float(np.round(rel_price, 2))
+            features.append([item["relPrice"], item["year"]])
+
+        X = np.array(features, dtype=float)
+
+        # 4. StandardScaler + KMeans
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+
+        n_clusters = max(2, min(4, len(cleaned_list) // 2))
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+        labels = kmeans.fit_predict(X_scaled)
+
+        centers_orig = scaler.inverse_transform(kmeans.cluster_centers_)
+        mean_rel = np.mean(X[:, 0])
+        mean_yr = np.mean(X[:, 1])
+
+        # 5. 클러스터 중심점에 따라 사람이 읽을 라벨 매핑
+        cluster_labels = {}
+        for c_idx in range(n_clusters):
+            c_rel, c_yr = centers_orig[c_idx]
+            is_high_price = c_rel >= mean_rel
+            is_newer = c_yr >= mean_yr
+
+            if is_high_price and not is_newer:
+                lbl = "고가·노후 주의군"
+            elif is_high_price and is_newer:
+                lbl = "고가·신축군"
+            elif not is_high_price and not is_newer:
+                lbl = "저가·노후군"
+            else:
+                lbl = "안심 후보군"
+            cluster_labels[c_idx] = lbl
+
+        points = []
+        for i, item in enumerate(cleaned_list):
+            cid = int(labels[i])
+            item["clusterId"] = cid
+            item["clusterLabel"] = cluster_labels.get(cid, "미분류")
+            points.append(item)
+
+        return jsonify({
+            "available": True,
+            "clusterCount": n_clusters,
+            "points": points
+        })
+
+    except Exception as e:
+        log.error(f"[AI-A2-SCATTER] cluster_nearby 예외 발생: {e}")
+        return jsonify({"available": False})
 
 # ─────────────────────────────────────────────────────────────
 # [RESTORED v5.9] 이미지 시스템 최우선 등록 (Route shadowing 방지)
@@ -1445,6 +1732,17 @@ def analyze():
         else:
             report_thumbnail = f"{BACKEND_URL}/api/thumbnail?lat={lat}&lng={lng}"
 
+        # [AI-A1] 전세가율 이상치 탐지
+        price_anomaly = detect_price_anomaly(trend_data, rent_ratio)
+
+        # [AI-A2] 위험유형 군집화
+        risk_cluster = classify_risk_cluster(
+            nps['ageScore'],
+            nps['ratioScore'],
+            nps['secScore'],
+            nps['violScore']
+        )
+
         return jsonify({
             "isEstimated":      not is_real,
             "confidenceScore":  final_confidence_pct,
@@ -1455,6 +1753,8 @@ def analyze():
             "amenityScore":     safety.get('amenityScore', 50),
             "isHUGAvailable":   hug_possible,
             "priceComparison":  price_comparison_msg.strip(),
+            "priceAnomaly":     price_anomaly,
+            "riskCluster":      risk_cluster,
             "npsBreakdown": {
                 "age":       nps['ageScore'],
                 "violation": nps['violScore'],
